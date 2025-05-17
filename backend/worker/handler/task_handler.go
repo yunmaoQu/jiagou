@@ -1,14 +1,14 @@
 package handler
 
 import (
-	"codex-sys/worker/internal/config"
-	"codex-sys/worker/internal/platform/database"
-	"codex-sys/worker/internal/platform/k8s"
-	"codex-sys/worker/internal/platform/objectstorage"
-	"codex-sys/worker/internal/task"
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/yunmaoQu/codex-sys/internal/config"
+	"github.com/yunmaoQu/codex-sys/internal/platform/database"
+	"github.com/yunmaoQu/codex-sys/internal/platform/objectstorage"
+	"github.com/yunmaoQu/codex-sys/internal/task"
+	"github.com/yunmaoQu/codex-sys/worker/k8s"
 	"log"
 	"os"
 	"os/exec"
@@ -21,10 +21,10 @@ type TaskHandler struct {
 	db  *database.DBClientWrapper // Wrapper for sqlx.DB
 	cos *objectstorage.ClientWrapper
 	k8s *k8s.Client
-	cfg config.WorkerConfig
+	cfg *config.Config
 }
 
-func NewTaskHandler(db *database.DBClientWrapper, cos *objectstorage.ClientWrapper, k8s *k8s.Client, cfg config.WorkerConfig) *TaskHandler {
+func NewTaskHandler(db *database.DBClientWrapper, cos *objectstorage.ClientWrapper, k8s *k8s.Client, cfg *config.Config) *TaskHandler {
 	return &TaskHandler{db: db, cos: cos, k8s: k8s, cfg: cfg}
 }
 
@@ -82,7 +82,7 @@ func (h *TaskHandler) Handle(ctx context.Context, key []byte, value []byte) erro
 			return nil
 		}
 
-		err = h.cos.DownloadFile(ctx, h.cfg.COSCodeBucket, msg.CodeLocation, zipFile)
+		err = h.cos.DownloadFile(ctx, h.cfg.COS.Buckets.Code, msg.CodeLocation, zipFile)
 		zipFile.Close() // Close before potential error check or unzip
 		if err != nil {
 			errMsg := fmt.Sprintf("Failed to download ZIP from COS: %v", err)
@@ -124,7 +124,7 @@ func (h *TaskHandler) Handle(ctx context.Context, key []byte, value []byte) erro
 
 	// Walk codeSourceDir and upload files to COS under agentCodeCOSPath
 	// This needs a recursive upload function in h.cos
-	err := h.cos.UploadDirectory(ctx, h.cfg.COSCodeBucket, agentCodeCOSPath, codeSourceDir)
+	err := h.cos.UploadDirectory(ctx, h.cfg.COS.Buckets.Code, agentCodeCOSPath, codeSourceDir)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to upload agent input code to COS: %v", err)
 		log.Printf("Worker: Task %s: %s", msg.TaskID, errMsg)
@@ -166,15 +166,15 @@ func (h *TaskHandler) Handle(ctx context.Context, key []byte, value []byte) erro
 
 	jobConfig := k8s.AgentJobConfig{
 		Name:           agentJobName,
-		Namespace:      h.cfg.K8sAgentNamespace,
-		Image:          h.cfg.AgentDockerImage, // e.g., "your-registry/codex-agent:latest"
+		Namespace:      h.cfg.K8s.Namespace,
+		Image:          h.cfg.K8s.AgentImage, // e.g., "your-registry/codex-agent:latest"
 		Command:        agentCmd,
 		EnvVars:        agentEnvVars,
-		CodeCOSPath:    fmt.Sprintf("s3://%s/%s", h.cfg.COSCodeBucket, agentCodeCOSPath), // For CSI or initContainer
-		OutputCOSPath:  fmt.Sprintf("s3://%s/logs/%s/", h.cfg.COSLogsBucket, msg.TaskID), // For sidecar or post-run upload
+		CodeCOSPath:    fmt.Sprintf("s3://%s/%s", h.cfg.COS.Buckets.Code, agentCodeCOSPath), // For CSI or initContainer
+		OutputCOSPath:  fmt.Sprintf("s3://%s/logs/%s/", h.cfg.COS.Buckets.Logs, msg.TaskID), // For sidecar or post-run upload
 		CPULimit:       "1",
 		MemoryLimit:    "2Gi",
-		ServiceAccount: h.cfg.K8sAgentServiceAccount, // If agent needs K8s permissions or cloud permissions via IRSA/Workload Identity
+		ServiceAccount: h.cfg.K8s.ServiceAccount, // If agent needs K8s permissions or cloud permissions via IRSA/Workload Identity
 	}
 
 	err = h.k8s.RunAgentJob(ctx, jobConfig)
@@ -215,7 +215,7 @@ func (h *TaskHandler) Handle(ctx context.Context, key []byte, value []byte) erro
 		finalStatus = task.StatusCompleted
 		finalMessage = "Agent processing completed successfully."
 		// Check for PR URL if applicable (e.g., by reading a specific file from COS output)
-		// prURL, _ := h.cos.ReadFileContent(ctx, h.cfg.COSLogsBucket, fmt.Sprintf("logs/%s/pr_url.txt", msg.TaskID))
+		// prURL, _ := h.cos.ReadFileContent(ctx, h.cfg.COS.Buckets.Logs, fmt.Sprintf("logs/%s/pr_url.txt", msg.TaskID))
 		// if prURL != "" { h.db.UpdateTaskPRURL(ctx, msg.TaskID, prURL) }
 
 	} else if jobStatus == k8s.JobFailed {

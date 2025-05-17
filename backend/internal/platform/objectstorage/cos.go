@@ -6,6 +6,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/tencentyun/cos-go-sdk-v5" // Tencent Cloud COS SDK
@@ -80,4 +83,45 @@ func (cw *ClientWrapper) GetPresignedURL(ctx context.Context, bucketName string,
 		return "", err
 	}
 	return presignedURL.String(), nil
+}
+
+// UploadDirectory uploads all files in a directory to COS recursively.
+func (cw *ClientWrapper) UploadDirectory(ctx context.Context, bucketName string, cosPrefix string, localDirPath string) error {
+	// This is a simplified implementation that walks through the directory
+	// and uploads each file individually
+	return filepath.Walk(localDirPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		
+		// Skip directories
+		if info.IsDir() {
+			return nil
+		}
+		
+		// Calculate the relative path from the base directory
+		relPath, err := filepath.Rel(localDirPath, path)
+		if err != nil {
+			return fmt.Errorf("failed to get relative path: %w", err)
+		}
+		
+		// Create the COS key by joining the prefix and relative path
+		cosKey := filepath.Join(cosPrefix, relPath)
+		// Convert Windows backslashes to forward slashes for COS paths
+		cosKey = strings.ReplaceAll(cosKey, "\\", "/")
+		
+		// Open the file for reading
+		file, err := os.Open(path)
+		if err != nil {
+			return fmt.Errorf("failed to open file %s: %w", path, err)
+		}
+		defer file.Close()
+		
+		// Upload the file
+		if err := cw.UploadFile(ctx, bucketName, cosKey, file, info.Size()); err != nil {
+			return fmt.Errorf("failed to upload file %s to %s: %w", path, cosKey, err)
+		}
+		
+		return nil
+	})
 }

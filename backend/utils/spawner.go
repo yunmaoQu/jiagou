@@ -2,9 +2,9 @@ package utils
 
 //docker_utils
 import (
-	"codex-sys/backend/task"
 	"context"
 	"fmt"
+	"github.com/yunmaoQu/codex-sys/internal/task"
 	"io"
 	"log"
 	"os"
@@ -20,12 +20,12 @@ import (
 
 const AgentImageName = "codex-agent:latest" // Must match the image built by Dockerfile
 
-func RunAgentContainer(task *tasks.Task) {
+func RunAgentContainer(task *task.Definition) {
 	ctx := context.Background()
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		log.Printf("Error creating Docker client for task %s: %v", task.ID, err)
-		tasks.UpdateTaskStatus(task.ID, tasks.StatusFailed, "Failed to create Docker client")
+		task.Updatetatus(ctx, task.ID, task.StatusFailed, "Failed to create Docker client")
 		return
 	}
 	defer cli.Close()

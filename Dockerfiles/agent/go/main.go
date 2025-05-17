@@ -1,12 +1,10 @@
-package main
+package agent
 
 import (
 	"flag"
 	"log"
 	"os"
 	"path/filepath"
-
-	"github.com/yourusername/codex-sys/agent"
 )
 
 func main() {
@@ -38,7 +36,7 @@ func main() {
 	}
 
 	// 创建并运行Agent
-	agent := agent.NewAgent(taskID, *taskDesc, *targetFile, codeDir, outputDir, githubToken)
+	agent := NewAgent(taskID, *taskDesc, *targetFile, codeDir, outputDir, githubToken)
 	if err := agent.Run(); err != nil {
 		log.Fatalf("Agent执行失败: %v", err)
 	}

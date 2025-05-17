@@ -194,5 +194,5 @@ func (a *Agent) createPR(response string) error {
 	// 保存PR URL到文件
 	prURL := "https://github.com/example/repo/pull/123" // 示例URL
 	prURLPath := filepath.Join(a.outputDir, "pr_url.txt")
-	return ioutil.WriteFile(prURLPath, []byte(prURL), 0644)
+	return io.WriteFile(prURLPath, []byte(prURL), 0644)
 }

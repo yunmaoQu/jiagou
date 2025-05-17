@@ -1,11 +1,11 @@
 package api
 
 import (
-	"codex-sys/internal/task" // Task domain logic
-	"codex-sys/internal/platform/kafka"
-	"codex-sys/internal/platform/objectstorage"
 	"context"
 	"fmt"
+	"github.com/yunmaoQu/codex-sys/internal/platform/kafka"
+	"github.com/yunmaoQu/codex-sys/internal/platform/objectstorage"
+	"github.com/yunmaoQu/codex-sys/internal/task" // Task domain logic
 	"log"
 	"net/http"
 	"time"
