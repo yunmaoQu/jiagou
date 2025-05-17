@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 
+	"fmt"
 	"github.com/segmentio/kafka-go"
 )
 

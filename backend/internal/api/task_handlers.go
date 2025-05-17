@@ -1,9 +1,9 @@
 package api
 
 import (
-	"codex-sys/go/internal/model/task" // Task domain logic
-	"codex-sys/go/internal/platform/kafka"
-	"codex-sys/go/internal/platform/objectstorage"
+	"codex-sys/internal/task" // Task domain logic
+	"codex-sys/internal/platform/kafka"
+	"codex-sys/internal/platform/objectstorage"
 	"context"
 	"fmt"
 	"log"

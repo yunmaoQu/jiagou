@@ -130,7 +130,7 @@ func HandleCreateTask(c *gin.Context) {
 	}
 
 	// Start the Docker agent in a goroutine
-	go docker_utils.RunAgentContainer(task)
+	go utils.RunAgentContainer(task)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":  "Task created successfully",

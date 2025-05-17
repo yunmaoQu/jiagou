@@ -15,7 +15,9 @@ import (
 // For S3, you'd use aws-sdk-go. For MinIO, also aws-sdk-go compatible.
 
 type ClientWrapper struct {
-	client *cos.Client
+	client    *cos.Client
+	secretID  string
+	secretKey string
 }
 
 type COSConfig struct { // Example config structure
@@ -34,7 +36,11 @@ func NewCOSClient(cfg COSConfig) (*ClientWrapper, error) {
 			SecretKey: cfg.SecretKey,
 		},
 	})
-	return &ClientWrapper{client: client}, nil
+	return &ClientWrapper{
+		client:    client,
+		secretID:  cfg.SecretID,
+		secretKey: cfg.SecretKey,
+	}, nil
 }
 
 func (cw *ClientWrapper) UploadFile(ctx context.Context, bucketName string, key string, reader io.Reader, size int64) error {
@@ -58,14 +64,18 @@ func (cw *ClientWrapper) DownloadFile(ctx context.Context, bucketName string, ke
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		return fmt.Errorf("COS Get failed for key %s with status %d", key, resp.StatusCode)
+		return fmt.Errorf("COS Get failed for key %s: status %d", key, resp.StatusCode)
 	}
 	_, err = io.Copy(writer, resp.Body)
-	return err
+	if err != nil {
+		return fmt.Errorf("COS download copy failed for key %s: %w", key, err)
+	}
+	return nil
 }
 
+// GetPresignedURL generates a presigned URL for the given object key.
 func (cw *ClientWrapper) GetPresignedURL(ctx context.Context, bucketName string, key string, duration time.Duration) (string, error) {
-	presignedURL, err := cw.client.Object.GetPresignedURL(ctx, http.MethodGet, key, cw.client.Conf.SecretID, cw.client.Conf.SecretKey, duration, nil)
+	presignedURL, err := cw.client.Object.GetPresignedURL(ctx, http.MethodGet, key, cw.secretID, cw.secretKey, duration, nil)
 	if err != nil {
 		return "", err
 	}

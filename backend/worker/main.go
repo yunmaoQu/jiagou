@@ -1,7 +1,6 @@
-package main
+package worker
 
 import (
-	"context"
 	"log"
 	"os"
 	"os/signal"
@@ -111,13 +110,6 @@ func initCOS(cfg Config) (*cos.Client, error) {
 	// TODO: 实现 COS 客户端初始化
 	return nil, nil
 }
-
-// NewTaskConsumer 创建任务消费者
-func NewTaskConsumer(brokers []string, cosClient *cos.Client) (sarama.Consumer, error) {
-	// TODO: 实现任务消费者创建
-	return nil, nil
-}
-
 // 入口函数，在 cmd/worker/main.go 中调用
 func main() {
 	log.Println("Worker 服务启动，等待任务...")

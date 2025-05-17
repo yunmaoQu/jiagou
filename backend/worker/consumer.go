@@ -10,8 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
-
 	"github.com/Shopify/sarama"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
