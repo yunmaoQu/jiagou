@@ -479,6 +479,3 @@ class ASTEditorTool:
         # ... placeholder ...
         pass
 ```
-
-
-这是一个激动人心的技术前沿，祝您构建顺利！
