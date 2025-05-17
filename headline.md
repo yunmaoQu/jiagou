@@ -1,6 +1,4 @@
-Okay, this is an excellent and well-defined project! I'll generate a complete project template for you, covering the core functionalities you've outlined.
 
-This template will include:
 
 1.  **Backend (Go):**
     *   API endpoints for task creation (`/task`) and status/log retrieval.
@@ -209,10 +207,10 @@ codex-sys/
 
 *   Persistent task storage (e.g., PostgreSQL, SQLite).
 *   User authentication and authorization.
-*   Support for more LLMs (Claude, local models).
+*   Support for more LLMs (Claude3.7thinkingMax, local models).
 *   More sophisticated agent capabilities.
 *   WebSockets for real-time log streaming.
-*   Job queue (e.g., Redis + Celery/RabbitMQ) for better task management.
+*   Job queue (e.g., Pulsar) for better task management.
 *   More robust error handling and retry mechanisms.
 *   Configurable container resource limits.
 ```
@@ -741,8 +739,6 @@ require (
         gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 ```
-*(Run `go mod tidy` in the `backend` directory after creating the Go files to populate `go.sum` and ensure dependencies are correct).*
-
 ---
 
 ### 9. `backend/main.go`
@@ -1738,13 +1734,9 @@ inputTypeSelect.dispatchEvent(new Event('change'));
 ```
 
 ---
-
-This comprehensive template should give you a very solid starting point.
-Remember to:
 1.  Fill in `.env` with your `OPENAI_API_KEY` (and optionally `GITHUB_TOKEN`).
 2.  Build the agent Docker image: `cd dockerfiles/agent && docker build -t codex-agent:latest . && cd ../..`
 3.  Run `go mod tidy` in the `backend` directory.
 4.  Start the backend: `cd backend && go run main.go`
 5.  Open `frontend/index.html` in your browser.
 
-Good luck with your AI Code Workstation Platform!
