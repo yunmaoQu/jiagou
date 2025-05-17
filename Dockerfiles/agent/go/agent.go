@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -154,16 +155,114 @@ func (a *Agent) generateDiff(originalCode, response string) error {
 		return fmt.Errorf("无法从响应中提取代码")
 	}
 
-	// 保存修改后的代码
-	modifiedPath := filepath.Join(a.outputDir, "modified_code.txt")
-	if err := os.WriteFile(modifiedPath, []byte(modifiedCode), 0644); err != nil {
-		return err
+	// 保存原始代码和修改后的代码
+	originalPath := filepath.Join(a.outputDir, "original_code.txt")
+	if err := os.WriteFile(originalPath, []byte(originalCode), 0644); err != nil {
+		return fmt.Errorf("保存原始代码失败: %w", err)
 	}
 
-	// TODO: 使用diff工具生成差异文件
-	// 这里简化实现，实际应该调用系统diff命令或使用专门的diff库
+	modifiedPath := filepath.Join(a.outputDir, "modified_code.txt")
+	if err := os.WriteFile(modifiedPath, []byte(modifiedCode), 0644); err != nil {
+		return fmt.Errorf("保存修改后的代码失败: %w", err)
+	}
 
+	// 生成差异文件
+	diffPath := filepath.Join(a.outputDir, "changes.diff")
+	diffFile, err := os.Create(diffPath)
+	if err != nil {
+		return fmt.Errorf("创建差异文件失败: %w", err)
+	}
+	defer diffFile.Close()
+
+	// 生成简单的统一格式差异
+	fmt.Fprintf(diffFile, "--- %s\n", a.targetFile)
+	fmt.Fprintf(diffFile, "+++ %s (modified)\n", a.targetFile)
+
+	// 将原始代码和修改后的代码分行
+	originalLines := strings.Split(originalCode, "\n")
+	modifiedLines := strings.Split(modifiedCode, "\n")
+
+	// 使用简单的行差异算法
+	a.generateLineDiff(diffFile, originalLines, modifiedLines)
+
+	log.Printf("差异文件已生成: %s", diffPath)
 	return nil
+}
+
+// generateLineDiff 生成行差异
+func (a *Agent) generateLineDiff(w io.Writer, originalLines, modifiedLines []string) {
+	// 简化版本，只显示添加和删除的行
+	// 实际生产中应使用更高级的diff库，如github.com/sergi/go-diff
+
+	// 找出不同的行
+	var hunk []string
+	currentLine := 1
+	hunkStart := 0
+
+	// 对每一行进行比较
+	i, j := 0, 0
+	for i < len(originalLines) || j < len(modifiedLines) {
+		// 如果到达原始代码的结尾，则所有剩余的修改行都是添加的
+		if i >= len(originalLines) {
+			if hunkStart == 0 {
+				hunkStart = currentLine
+			}
+			hunk = append(hunk, fmt.Sprintf("+%s", modifiedLines[j]))
+			j++
+			currentLine++
+			continue
+		}
+
+		// 如果到达修改代码的结尾，则所有剩余的原始行都是删除的
+		if j >= len(modifiedLines) {
+			if hunkStart == 0 {
+				hunkStart = currentLine
+			}
+			hunk = append(hunk, fmt.Sprintf("-%s", originalLines[i]))
+			i++
+			continue
+		}
+
+		// 比较当前行
+		if originalLines[i] == modifiedLines[j] {
+			// 如果有差异块，先输出
+			if len(hunk) > 0 {
+				fmt.Fprintf(w, "@@ -%d,%d +%d,%d @@\n", hunkStart, len(hunk), hunkStart, len(hunk))
+				for _, line := range hunk {
+					fmt.Fprintf(w, "%s\n", line)
+				}
+				hunk = nil
+				hunkStart = 0
+			}
+
+			// 相同的行，两边都前进
+			i++
+			j++
+			currentLine++
+		} else {
+			// 不同的行，记录差异
+			if hunkStart == 0 {
+				hunkStart = currentLine
+			}
+
+			// 简化处理，将原始行标记为删除，修改行标记为添加
+			// 实际生产中应使用更高级的diff算法来找出真正的差异
+			hunk = append(hunk, fmt.Sprintf("-%s", originalLines[i]))
+			hunk = append(hunk, fmt.Sprintf("+%s", modifiedLines[j]))
+
+			i++
+			j++
+			currentLine++
+		}
+	}
+
+	// 输出最后的差异块
+	if len(hunk) > 0 {
+		fmt.Fprintf(w, "@@ -%d,%d +%d,%d @@\n", hunkStart, len(hunk)/2, hunkStart, len(hunk)/2)
+		for _, line := range hunk {
+			fmt.Fprintf(w, "%s\n", line)
+		}
+	}
 }
 
 // extractCodeFromResponse 从LLM响应中提取代码
