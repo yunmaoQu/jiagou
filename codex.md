@@ -3,11 +3,11 @@
 
 > **用户访问你的平台** → **托管自己的代码仓库**（GitHub / 本地上传） → **系统将代码放入容器中** → **启动 Agent（模型）分析、修改或生成 PR 等任务**。
 
-这就像是你要构建一个“**AI 代码工作站平台**”，支持代码托管 → 容器化运行 → LLM 助手操作代码！
+构建一个“**AI 代码工作站平台**”，支持代码托管 → 容器化运行 → LLM 助手操作代码！
 
 ---
 
-## ✅ 核心目标功能（你要实现的）
+## ✅ 核心目标功能(正在实现中)
 
 | 步骤 | 功能 |
 |------|------|
@@ -28,13 +28,13 @@ graph TB
 User --> WebApp
 WebApp --> API[Codex API (Go)]
 API --> Storage[代码上传 / Git 拉取]
-API --> TaskManager[任务调度器]
+API --> TaskManage[r[任务调度器]
 TaskManager --> DockerSpawner[容器管理]
 DockerSpawner --> Container[运行环境容器]
 Container --> Agent[Agent 执行任务]
 Agent --> LLM[LLM（OpenAI / 本地）]
 Agent --> Diff[生成修改 / diff / PR]
-Agent --> Logger[日志 & 结果输出]
+Agent --> Logger[日志 & 结](https://pandoc.org/try/)果输出]
 Logger --> API
 API --> User
 ```
@@ -71,7 +71,7 @@ API --> User
 
 ## 🧪 Docker 容器管理（Go 示例）
 
-你可以用 [Docker SDK for Go](https://github.com/docker/docker/client) 启动任务容器：
+用 [Docker SDK for Go](https://github.com/docker/docker/client) 启动任务容器：
 
 ```go
 import "github.com/docker/docker/client"
@@ -112,7 +112,7 @@ func RunAgentContainer(repoPath string, task string, mode string) (string, error
 
 ## 🚀 Agent 执行器（容器内运行）
 
-你可以写一个容器内的 `agent.py` 或 `agent.go`，它会：
+一个容器内的 `agent.py` 或 `agent.go`，它会：
 
 1. 读取 task.json 或命令行参数
 2. 加载代码文件 / AGENTS.md
@@ -178,14 +178,11 @@ if __name__ == "__main__":
   - `diff.patch`
   - `setup.log`
 - 显示链接如：
-  - `https://yourdomain.com/logs/20240517_xyz/diff.patch`
+  - `https://codex-sys.com/logs/20250517_xyz/diff.patch`
 
 ---
 
-## ✅ 安全性建议
-
-| 项目 | 建议 |
-|------|------|
+## ✅ 安全性
 | 容器沙箱 | 每个任务一个容器，执行后销毁 |
 | 网络限制 | setup 阶段可以联网，agent 执行阶段禁网（可选） |
 | 权限控制 | 不允许执行非白名单脚本 |
@@ -193,7 +190,7 @@ if __name__ == "__main__":
 
 ---
 
-## 下一步为我做的事？
+## 下一步
 
 1. ✅ **提供完整的 Docker + Go 示例项目（GitHub 模板）**
 2. ✅ **打包 Agent 容器（Dockerfile + 代码）**
@@ -201,11 +198,3 @@ if __name__ == "__main__":
 4. ✅ **加上 PR 创建功能（使用 GitHub Token）**
 5. ✅ **整合前端页面（可选）**
 
----
-
-> ✅「请帮我生成完整的项目模板（含容器 + agent + 后端服务）」  
-或  
-> 🧩「我继续开发（容器调度、Agent 容器、PR 自动化、日志系统）」  
-
-我会为你**生成完整代码或交付包**！
-立即生成完整的项目💡
