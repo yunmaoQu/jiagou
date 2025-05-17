@@ -479,3 +479,183 @@ class ASTEditorTool:
         # ... placeholder ...
         pass
 ```
+
+
+下面把「高级 RAG＋CoT＋MCP 循环」的剩余部分补完，并给出一条从“日志采集→数据清洗→增量微调”的完整闭环参考实现。所有内容都保持中文。🚀
+
+---
+
+## II-B. 批判-改进 (Critique & Refine) —— 完成 CoT/MCP 闭环
+
+```python
+# 4. Critique & Refine (继续上段伪代码)
+            # 4-A 调用批判模型，对刚才 observation 与 thought 进行评估
+            critique_prompt = CRITIQUE_TEMPLATE.format(
+                goal=current_goal,
+                thought=llm_response_text,
+                action=action_name,
+                observation=observation
+            )
+            critique_resp = self.llm.generate(
+                critique_prompt,
+                model="OPENAI_CRITIQUE_MODEL_ID"  # 可与主模型不同
+            )
+            self.log_interaction("critique", critique_resp)
+
+            # 4-B 根据批判意见更新下一轮的 goal 或在 prompt 中插入《上一轮批判摘要》
+            current_goal = self.update_goal_with_critique(
+                current_goal, critique_resp
+            )
+
+            # 如果批判模型给出“已达成目标”或“放弃”
+            if "terminate" in critique_resp.lower():
+                self.log_interaction("terminated_by_critic", critique_resp)
+                return observation  # 直接结束任务
+```
+
+### 1. `CRITIQUE_TEMPLATE`（可简写）
+
+```
+你是严苛的代码审查机器人。目标: {goal}
+上一轮思考和动作如下:
+Thought:\n{thought}\n
+Action: {action}\n
+Observation:\n{observation}\n
+请定位问题或潜在改进点，若已满足目标请回 `TERMINATE`。
+格式:
+[
+  {"severity": "HIGH|MEDIUM|LOW", "comment": "..."},
+  ...
+]
+```
+
+### 2. `update_goal_with_critique`
+
+```python
+def update_goal_with_critique(self, goal:str, critique:str) -> str:
+    if "terminate" in critique.lower():
+        return goal  # 无需再改
+    return goal + "\n# 评审意见:\n" + critique
+```
+
+这样就实现了 **Thought → Action → Observation → Critique → Refine** 的完整五步循环。  
+实践中效果最好的一般迭代 3-6 次即可收敛。
+
+---
+
+## III. 微调数据收集与训练闭环
+
+1. **数据落盘（已在前面 `record_iteration` 写入 JSONL）：**  
+   每条记录包含：
+   ```
+   {
+     "iteration": 3,
+     "agent_input": {...},
+     "mcp_reply": {...}          # 其中含 thought / tool_call / critique
+   }
+   ```
+
+2. **数据清洗脚本（示例）：**
+
+```bash
+python scripts/extract_ft_pairs.py \
+    --jsonl_dir /app/output/finetuning_data \
+    --out_file ft_dataset.jsonl
+```
+
+`extract_ft_pairs.py` 要做的事：
+
+```
+for 每个 task_id:
+    将 history 按顺序串成系统 / 用户 / 助手消息
+    最后一轮若含 final_answer，则写入 {"messages":[...]}
+```
+
+3. **增量微调（以 `Axolotl` 为例）：**
+
+```bash
+accelerate launch -m axolotl.cli.train \
+    -c configs/finetune_llama_swe.yaml \
+    dataset.path=ft_dataset.jsonl \
+    model.pretrained=codellama/CodeLlama-13b \
+    output_dir=models/ft-202406
+```
+
+   - 可选择 **LoRA** / **QLoRA** 节省显存  
+   - 每晚定时跑一次，产出新权重后滚动更新 K8s Deployment 的 `ConfigMap` 即可灰度发布
+
+---
+
+## IV. 工具注册与自动 Schema 生成
+
+用 pydantic / dataclasses 把每个工具的参数描述暴露给 LLM，减少“参数错位”现象。
+
+```python
+from pydantic import BaseModel, Field
+
+class EditFileArgs(BaseModel):
+    file_path: str = Field(..., desc="相对路径")
+    new_content: str | None = Field(None)
+    diff_patch: str | None = None
+    insert_after_line: int = -1
+    replace_lines: tuple[int,int] | None = None
+
+TOOL_SCHEMAS = {
+    "edit_file": EditFileArgs.schema(),   # 自动生成 JSON schema
+    ...
+}
+```
+
+在 `prompt_template` 中插入：
+
+```
+可用工具及参数 (JSON Schema):
+{{tool_schemas}}
+```
+
+LLM（gpt-4/8k/32k）已支持 `tool`/`function_calling`，这样返回结构体就能被 `json.loads` 直接解析。
+
+---
+
+## V. 监控 & 观测性
+
+1. **Prometheus + Grafana**  
+   - 拉取 `agent.log` 中的关键行，如 `tool_success_total{tool="edit_file"}`  
+   - 统计失败率、平均运行时、LLM token 使用量
+
+2. **分布式 Tracing**  
+   - OpenTelemetry SDK：`trace_id` 写进 `task_id`，平台端和 Agent 端串起全链路
+
+3. **Red Team / 代码注入**  
+   - 离线跑一套“恶意提示”集，查看 Agent 是否会执行危险命令  
+   - 若失败率>阈值即自动 rollback 到上一版微调模型
+
+---
+
+## VI. 部署小贴士
+
+| 组件 | 推荐实例类型 | 自动伸缩指标 |
+|------|-------------|-------------|
+| APIService | t3.medium（无状态） | QPS /95 延迟 |
+| WorkerService | gpu-a10-x2 | 队列长度 |
+| VectorDB | r6i.large + 本地 SSD | 查询 QPS |
+| Fine-tune Pipeline | spot-gpu | 作业排队长度 |
+
+---
+
+### 一张总览图
+
+```mermaid
+flowchart LR
+    subgraph CloseLoop
+        logs[🚜 Logs] --> clean[🧹 Clean & Format] --> lora[📈 LoRA Fine-tune] --> model[🎯 New Weights] --> deploy[🚀 Canary Deploy]
+        deploy -->|💬| AgentPods
+        AgentPods -->|JSONL| logs
+    end
+```
+
+闭环跑起来后，你就拥有了：  
+• 高召回、高精度的 **RAG**  
+• 自我思考、自我批判的 **CoT/MCP**  
+• 持续进化的 **微调模型**  
+
