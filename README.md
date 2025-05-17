@@ -167,35 +167,6 @@ GITHUB_TOKEN=""
 # If a user provides a GITHUB_TOKEN via the API, that will override this one for that specific task.
 ```
 
----
-
-### 4. `dockerfiles/agent/requirements.txt`
-
-```txt
-openai
-python-dotenv
-requests
-```
-
----
-
-### 5. `dockerfiles/agent/AGENTS.md.example`
-
-
-### 6. `dockerfiles/agent/setup.sh.example`
-
-
----
-
-### 8. `backend/go.mod`
-
-
-### 10. `backend/utils/utils.go`
-
-
-
-### 12. `backend/utils/spawner.go`
-
 
 1.  Fill in `.env` with your `OPENAI_API_KEY` (and optionally `GITHUB_TOKEN`).
 2.  Build the agent Docker image: `cd dockerfiles/agent && docker build -t codex-agent:latest . && cd ../..`
