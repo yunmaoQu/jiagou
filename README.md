@@ -1,31 +1,4 @@
-<<<<<<< HEAD
-=======
-# Codex-like SYS
 
-## 🎯 场景描述
-
-> **用户访平台（codex.com）** → **托管自己的代码仓库**（GitHub / 本地上传） → **系统将代码放入容器中** → **启动 Agent（模型）分析、修改或生成 PR 等任务**。
-
-构建一个“**AI 代码工作站平台**”，支持代码托管 → 容器化运行 → LLM 助手操作代码！
-
->>>>>>> ed6fec0d6f83bb0e58fae74d5f9f712788fb6578
----
-
-### 1. `README.md`
-
-<<<<<<< HEAD
-```markdown
-# Codex-like SYS: AI Code Workstation Platform
-=======
-| 步骤 | 功能 |
-|------|------|
-| 1️⃣ 用户上传或托管代码仓库 | 可通过 Git URL 或上传 zip |
-| 2️⃣ 将代码放入隔离的容器中 | 创建每个任务的独立容器（如 Docker） |
-| 3️⃣ 容器中运行 Agent | 拉起一个 Agent，载入代码，执行任务 |
-| 4️⃣ Agent 调用 LLM | 如 OpenAI、Claude、deepseek 等 |
-| 5️⃣ 获取结果：修改代码 / diff / PR | 返回结果给用户，可生成 patch 或 PR |
-| 6️⃣ 提供任务日志 & 分享链接 | 任务详情、日志、diff 下载，甚至 Web UI |
->>>>>>> ed6fec0d6f83bb0e58fae74d5f9f712788fb6578
 
 This project implements a system where users can submit code (via Git URL or ZIP upload) to be processed by an AI agent running in an isolated Docker container. The agent can analyze, modify code, generate diffs, and even attempt to create GitHub Pull Requests.
 
@@ -231,9 +204,4 @@ requests
 5.  Open `frontend/index.html` in your browser.
 
 
-<<<<<<< HEAD
-
-
-=======
->>>>>>> ed6fec0d6f83bb0e58fae74d5f9f712788fb6578
 
