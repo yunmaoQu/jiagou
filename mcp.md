@@ -1,6 +1,77 @@
  Agent 增加 **工具使用/函数调用 (Tool Use / Function Calling)** 
 
-我们将以 OpenAI 的函数调用功能为例，因为它提供了一个相对结构化的方式来实现这一点。如果使用其他模型，可能需要通过解析 LLM 的特定输出格式（例如，生成 JSON 指令）来模拟类似功能。
+以 OpenAI 的函数调用功能为例，
+```python
+# Mapping of tool names to functions
+AVAILABLE_TOOLS = {
+    "run_shell_command": tool_run_shell_command,
+    "read_file_content": tool_read_file,
+    "edit_file_content": ,
+    "web_search_doc_and_reference":,
+    "call_api":,
+    "",
+}
+
+# OpenAI function schema for the tools
+TOOLS_SCHEMA = [
+    {
+        "type": "function",
+        "function": {
+            "name": "run_shell_command",
+            "description": "Executes a shell command in the specified directory (relative to /app/code) and returns its stdout, stderr, and exit code. Use for linters, tests, etc.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command_string": {
+                        "type": "string",
+                        "description": "The shell command to execute. E.g., 'pylint main.py' or 'npm test'.",
+                    },
+                    "target_directory": {
+                        "type": "string",
+                        "description": "The directory (relative to /app/code) in which to run the command. Defaults to '.' (code root). E.g., 'src' or 'tests'.",
+                        "default": "."
+                    }
+                },
+                "required": ["command_string"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file_content",
+            "description": "Reads the content of a specified file (relative to /app/code).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "The relative path to the file from the root of the codebase (/app/code). E.g., 'src/utils.py'.",
+                    }
+                },
+                "required": ["file_path"],
+            },
+        },
+    }
+]
+# --- End Tool Definitions ---
+
+
+def get_llm_response_with_tool_calls(messages_history):
+    logging.info(f"Sending request to OpenAI API with {len(messages_history)} messages (tools enabled)...")
+    try:
+        client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=messages_history,
+            tools=TOOLS_SCHEMA,
+            tool_choice="auto" # Let the model decide if it wants to use a tool
+        )
+        return response.choices[0] # Return the full choice object
+    except Exception as e:
+        logging.error(f"Error calling OpenAI API: {e}")
+        return None
+```
 mcp（model-context-protocol）
 **核心思路：**
 
