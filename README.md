@@ -1,200 +1,214 @@
-# Codex-like SYS
-
-## 🎯 场景描述
-
-> **用户访问你的平台** → **托管自己的代码仓库**（GitHub / 本地上传） → **系统将代码放入容器中** → **启动 Agent（模型）分析、修改或生成 PR 等任务**。
-
-构建一个“**AI 代码工作站平台**”，支持代码托管 → 容器化运行 → LLM 助手操作代码！
-
 ---
 
-## ✅ 核心目标功能(正在实现中)
+### 1. `README.md`
 
-| 步骤 | 功能 |
-|------|------|
-| 1️⃣ 用户上传或托管代码仓库 | 可通过 Git URL 或上传 zip |
-| 2️⃣ 将代码放入隔离的容器中 | 创建每个任务的独立容器（如 Docker） |
-| 3️⃣ 容器中运行 Agent | 拉起一个 Agent，载入代码，执行任务 |
-| 4️⃣ Agent 调用 LLM | 如 OpenAI、Claude、CodeLlama 等 |
-| 5️⃣ 获取结果：修改代码 / diff / PR | 返回结果给用户，可生成 patch 或 PR |
-| 6️⃣ 提供任务日志 & 分享链接 | 任务详情、日志、diff 下载，甚至 Web UI |
+```markdown
+# Codex-like SYS: AI Code Workstation Platform
 
----
+This project implements a system where users can submit code (via Git URL or ZIP upload) to be processed by an AI agent running in an isolated Docker container. The agent can analyze, modify code, generate diffs, and even attempt to create GitHub Pull Requests.
 
-## 🧱 系统结构图（Codex-like 架构）
+## Features
 
-```mermaid
-graph TB
+*   **Code Input:** Supports Git URLs and ZIP file uploads.
+*   **Isolated Execution:** Each task runs in its own Docker container.
+*   **LLM Integration:** Agent uses OpenAI (configurable for others) for code tasks.
+*   **Output:** Generates diffs, logs, and can create GitHub PRs.
+*   **Web API:** Backend API for task management.
+*   **Simple Frontend:** Basic UI for interaction.
 
-User --> WebApp
-WebApp --> API["Codex API (Go)"]
-API --> Storage["代码上传 / Git 拉取"]
-API --> TaskManager["任务调度器"]
-TaskManager --> DockerSpawner["容器管理"]
-DockerSpawner --> Container["运行环境容器"]
-Container --> Agent["Agent 执行任务"]
-Agent --> LLM["LLM（OpenAI / 本地）"]
-Agent --> Diff["生成修改 / diff / PR"]
-Agent --> Logger["日志 & 结果输出"]
-Logger --> API
-API --> User
+## Project Structure
+
 ```
----
-
-## 🧱 容器运行模型参考（每个任务一容器）
-
-| 容器内容 | 描述 |
-|----------|------|
-| ✅ 用户代码 | Git clone 或 zip 解压 |
-| ✅ AGENTS.md | 用户自定义 agent 指令（可选） |
-| ✅ setup.sh | 用于初始化环境 |
-| ✅ agent.go / agent.py | 你的任务执行器，调用 LLM |
-| ✅ 环境依赖 | Python、Go、Node 等 |
-| ⛔ 无互联网 | 执行阶段断网，安全隔离（可选） |
-
----
-
-## ✅ 示例流程：从用户到 Agent 执行
-
-1. 用户上传仓库或输入 GitHub URL
-2. 后端克隆代码 / 解压 zip 到临时目录
-3. 调用 Docker API 启动一个容器：
-   - 挂载代码目录
-   - 执行 setup.sh（如果存在）
-   - 启动 agent.go / agent.py 来处理任务
-4. agent 调用 OpenAI API（或本地模型）
-5. 生成结果（解释、修改、diff、PR）
-6. 容器停止，日志和结果保存本地
-7. 通过 Web 返回链接或结果给用户
-
----
-
-## 🧪 Docker 容器管理（Go 示例）
-
-用 [Docker SDK for Go](https://github.com/docker/docker/client) 启动任务容器：
-
-```go
-import "github.com/docker/docker/client"
-
-func RunAgentContainer(repoPath string, task string, mode string) (string, error) {
-    cli, err := client.NewClientWithOpts(client.FromEnv)
-    if err != nil {
-        return "", err
-    }
-
-    // 创建容器配置
-    containerConfig := &container.Config{
-        Image: "your-codex-image",
-        Cmd:   []string{"./agent", "--task", task, "--mode", mode},
-        Env:   []string{"OPENAI_API_KEY=sk-xxx"},
-    }
-
-    hostConfig := &container.HostConfig{
-        Binds: []string{repoPath + ":/app/code"},
-    }
-
-    // 创建容器
-    resp, err := cli.ContainerCreate(context.Background(), containerConfig, hostConfig, nil, nil, "")
-    if err != nil {
-        return "", err
-    }
-
-    // 启动容器
-    if err := cli.ContainerStart(context.Background(), resp.ID, types.ContainerStartOptions{}); err != nil {
-        return "", err
-    }
-
-    return resp.ID, nil
-}
+codex-sys/
+├── backend/                  # Go backend service
+├── dockerfiles/agent/        # Docker setup for the Python agent
+├── frontend/                 # Simple HTML/JS frontend
+├── storage/                  # Runtime data (code, logs) - gitignored
+├── .env.example              # Environment variable template
+└── README.md                 # This file
 ```
 
----
+## Prerequisites
 
-## 🚀 Agent 执行器（容器内运行）
+*   **Go:** Version 1.20+
+*   **Docker:** Docker daemon running
+*   **Python 3:** For the agent (will be containerized)
+*   **Git:** For cloning repositories
+*   **OpenAI API Key:** For the LLM agent
+*   **GitHub Personal Access Token (Optional):** If you want the agent to create PRs. Needs `repo` scope.
 
-一个容器内的 `agent.py` 或 `agent.go`，它会：
+## Setup
 
-1. 读取 task.json 或命令行参数
-2. 加载代码文件 / AGENTS.md
-3. 构造 prompt 调用 LLM
-4. 输出结果：解释、修改、diff、PR
+1.  **Clone the repository:**
+    ```bash
+    git clone <your-repo-url> codex-sys
+    cd codex-sys
+    ```
 
----
+2.  **Configure Environment Variables:**
+    Copy `.env.example` to `.env` and fill in your details:
+    ```bash
+    cp .env.example .env
+    nano .env
+    ```
+    Update `OPENAI_API_KEY` and optionally `GITHUB_TOKEN`.
 
-## 📦 Dockerfile 示例（容器镜像）
+3.  **Build the Agent Docker Image:**
+    ```bash
+    cd dockerfiles/agent
+    docker build -t codex-agent:latest .
+    cd ../..
+    ```
+    *Note: If you modify `agent.py` or its dependencies, you'll need to rebuild this image.*
 
-```Dockerfile
-FROM ubuntu:24.04
+4.  **Prepare Backend Dependencies:**
+    ```bash
+    cd backend
+    go mod tidy
+    cd ..
+    ```
 
-RUN apt update && apt install -y \
-    curl git python3 python3-pip
+## Running the System
 
-WORKDIR /app
-COPY . /app
+1.  **Start the Backend Service:**
+    ```bash
+    cd backend
+    go run main.go
+    ```
+    The backend will start (default: `http://localhost:8080`). It will also create `storage/repos` and `storage/logs` directories if they don't exist.
 
-RUN pip install openai difflib
+2.  **Access the Frontend:**
+    Open `frontend/index.html` in your web browser.
+    *Note: For simplicity, this frontend directly accesses the local backend. For a deployed version, you'd serve the frontend via the backend or a web server and handle CORS.*
 
-CMD ["python3", "agent.py"]
-```
+## How it Works
 
----
+1.  **User Interaction (Frontend/API):**
+    *   User provides a Git URL or uploads a ZIP file, along with a task description (e.g., "Refactor this function for clarity") and a target file within the repo.
+    *   The frontend sends this to the backend API (`/api/task`).
 
-## 📁 agent.py 示例（容器内）
+2.  **Backend Processing:**
+    *   The Go backend receives the request.
+    *   It generates a unique Task ID.
+    *   If Git URL: Clones the repo into `storage/repos/<task_id>`.
+    *   If ZIP: Extracts the ZIP into `storage/repos/<task_id>`.
+    *   It creates a log directory `storage/logs/<task_id>`.
+    *   It spawns a `codex-agent` Docker container.
+        *   The user's code directory (`storage/repos/<task_id>`) is mounted to `/app/code` in the container.
+        *   The log directory (`storage/logs/<task_id>`) is mounted to `/app/output` in the container.
+        *   `OPENAI_API_KEY` and `GITHUB_TOKEN` are passed as environment variables.
+        *   The agent is invoked with the task description and target file.
 
-```python
-import openai, os, sys, difflib
+3.  **Agent Execution (Inside Container):**
+    *   The `agent.py` script runs.
+    *   It reads `AGENTS.md.example` (if present in the repo root) for custom instructions.
+    *   It reads the target code file.
+    *   It constructs a prompt for the LLM.
+    *   It calls the OpenAI API.
+    *   It processes the LLM's response (e.g., modified code).
+    *   It generates a `diff.patch` file.
+    *   If a `GITHUB_TOKEN` is provided and the input was a GitHub repo, it attempts to:
+        *   Create a new branch.
+        *   Commit the changes.
+        *   Push the branch.
+        *   Create a Pull Request.
+    *   It writes `prompt.txt`, `llm_response.txt`, `diff.patch`, and `agent.log` to `/app/output`.
+    *   It executes `setup.sh.example` if present in the repo root.
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+4.  **Results & Logging:**
+    *   The backend monitors the container. Once it finishes, the task status is updated.
+    *   Output files from `/app/output` (now in `storage/logs/<task_id>`) are available via the API (`/api/logs/<task_id>/<filename>`).
+    *   The frontend can poll for task status and display links to the logs/diff.
 
-def main():
-    task = sys.argv[1]
-    mode = sys.argv[2]
-    with open("/app/code/main.go") as f:
-        code = f.read()
+## API Endpoints
 
-    prompt = f"Task: {task}\n\nCode:\n{code}"
-    response = openai.ChatCompletion.create(
-        model="gpt-4",
-        messages=[{"role": "user", "content": prompt}]
-    )
+*   `POST /api/task`: Create a new task.
+    *   Body (form-data):
+        *   `git_url` (string, optional): URL of the Git repository.
+        *   `zip_file` (file, optional): Uploaded ZIP file of the code.
+        *   `task_description` (string): What the agent should do.
+        *   `target_file` (string): Relative path to the target file in the repo (e.g., `src/main.py`).
+        *   `github_token` (string, optional, for PRs if not set in backend .env): User-provided GitHub token.
+*   `GET /api/task/{task_id}/status`: Get the status of a task.
+*   `GET /api/logs/{task_id}/{filename}`: Get a specific log file (e.g., `diff.patch`, `agent.log`).
 
-    new_code = response.choices[0].message.content
-    diff = difflib.unified_diff(code.splitlines(), new_code.splitlines(), lineterm="")
+## Security Considerations (Reiteration)
 
-    with open("/app/output/diff.patch", "w") as out:
-        out.write("\n".join(diff))
+*   **Container Sandboxing:** Each task runs in an ephemeral Docker container.
+*   **Resource Limits:** Consider adding CPU/memory limits to container creation.
+*   **Network Isolation:** The current agent `Dockerfile` allows internet access for `pip install` and LLM calls. For stricter security, you could have a multi-stage Docker build or disable network during agent execution (if using local LLMs).
+*   **Input Sanitization:** Ensure proper handling of user inputs (URLs, file names).
+*   **Secrets Management:** `OPENAI_API_KEY` and `GITHUB_TOKEN` are sensitive. Use a proper secrets management solution for production.
+*   **Code Execution:** The `setup.sh` script from the user's repo is executed. This is a potential security risk. Implement whitelisting or sandboxing for `setup.sh` commands if untrusted code is processed.
 
-if __name__ == "__main__":
-    main()
+## Future Enhancements
+
+*   Persistent task storage (e.g., PostgreSQL, SQLite).
+*   User authentication and authorization.
+*   Support for more LLMs (Claude3.7thinkingMax, local models).
+*   More sophisticated agent capabilities.
+*   WebSockets for real-time log streaming.
+*   Job queue (e.g., Pulsar) for better task management.
+*   More robust error handling and retry mechanisms.
+*   Configurable container resource limits.
 ```
 
 ---
 
-## ✅ 日志与分享链接
+### 2. `.env.example`
 
-- 每次任务在 `logs/<task_id>` 目录下保存：
-  - `prompt.txt`
-  - `llm_response.txt`
-  - `diff.patch`
-  - `setup.log`
-- 显示链接如：
-  - `https://codex-sys.com/logs/20250517_xyz/diff.patch`
+```ini
+# Backend Configuration
+BACKEND_PORT=8080
+STORAGE_PATH=./storage # Relative to backend executable or absolute
+
+# Agent Configuration
+OPENAI_API_KEY="sk-your-openai-api-key"
+
+# Optional: GitHub Token for creating Pull Requests by the agent
+# The agent will use this token to authenticate with GitHub
+# Ensure it has 'repo' scope for private repos, or public_repo for public ones.
+GITHUB_TOKEN=""
+# If a user provides a GITHUB_TOKEN via the API, that will override this one for that specific task.
+```
 
 ---
 
-## ✅ 安全性
-| 容器沙箱 | 每个任务一个容器，执行后销毁 |
-| 网络限制 | setup 阶段可以联网，agent 执行阶段禁网（可选） |
-| 权限控制 | 不允许执行非白名单脚本 |
-| LLM API | 使用代理或限速策略 |
+### 4. `dockerfiles/agent/requirements.txt`
+
+```txt
+openai
+python-dotenv
+requests
+```
 
 ---
 
-## 下一步
+### 5. `dockerfiles/agent/AGENTS.md.example`
 
-1. ✅ **提供完整的 Docker + Go 示例项目（GitHub 模板）**
-2. ✅ **打包 Agent 容器（Dockerfile + 代码）**
-3. ✅ **提供 Web API 示例（/task 接口 + 状态轮询）**
-4. ✅ **加上 PR 创建功能（使用 GitHub Token）**
-5. ✅ **整合前端页面（可选）**
+
+### 6. `dockerfiles/agent/setup.sh.example`
+
+
+---
+
+### 8. `backend/go.mod`
+
+
+### 10. `backend/utils/utils.go`
+
+
+
+### 12. `backend/utils/spawner.go`
+
+
+1.  Fill in `.env` with your `OPENAI_API_KEY` (and optionally `GITHUB_TOKEN`).
+2.  Build the agent Docker image: `cd dockerfiles/agent && docker build -t codex-agent:latest . && cd ../..`
+3.  Run `go mod tidy` in the `backend` directory.
+4.  Start the backend: `cd backend && go run main.go`
+5.  Open `frontend/index.html` in your browser.
+
+
+
+
 
