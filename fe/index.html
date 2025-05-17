@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Codex-like SYS</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
+        .container { background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1, h2 { color: #333; }
+        label { display: block; margin-top: 10px; margin-bottom: 5px; }
+        input[type="text"], input[type="file"], textarea, button {
+            width: calc(100% - 22px); padding: 10px; margin-bottom: 10px; border-radius: 4px; border: 1px solid #ddd;
+        }
+        button { background-color: #007bff; color: white; border: none; cursor: pointer; font-size: 16px; }
+        button:hover { background-color: #0056b3; }
+        .output, .logs { margin-top: 20px; padding: 10px; border: 1px solid #eee; border-radius: 4px; background-color: #f9f9f9; }
+        .log-link { display: block; margin: 5px 0; }
+        pre { background-color: #eee; padding: 10px; border-radius: 4px; white-space: pre-wrap; word-wrap: break-word; }
+        .error { color: red; }
+        .success { color: green; }
+        #status { font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Codex-like System</h1>
+
+        <form id="taskForm">
+            <label for="inputType">Input Type:</label>
+            <select id="inputType" name="inputType">
+                <option value="git">Git URL</option>
+                <option value="zip">ZIP File</option>
+            </select>
+
+            <div id="gitUrlGroup">
+                <label for="gitUrl">Git Repository URL:</label>
+                <input type="text" id="gitUrl" name="git_url" placeholder="https://github.com/user/repo.git">
+            </div>
+
+            <div id="zipFileGroup" style="display:none;">
+                <label for="zipFile">Upload Code (ZIP):</label>
+                <input type="file" id="zipFile" name="zip_file" accept=".zip">
+            </div>
+
+            <label for="taskDescription">Task Description:</label>
+            <textarea id="taskDescription" name="task_description" rows="3" placeholder="e.g., Refactor function 'foo' in main.py to improve readability."></textarea>
+
+            <label for="targetFile">Target File Path (relative to repo root):</label>
+            <input type="text" id="targetFile" name="target_file" placeholder="e.g., src/main.py or README.md">
+            
+            <label for="githubToken">GitHub Token (Optional, for PR creation):</label>
+            <input type="text" id="githubToken" name="github_token" placeholder="ghp_...">
+
+
+            <button type="submit">Submit Task</button>
+        </form>
+
+        <div class="output">
+            <h2>Task Status</h2>
+            <p id="statusMessage">Submit a task to see its status.</p>
+            <div id="taskIdDisplay" style="display:none;"><strong>Task ID:</strong> <span id="taskId"></span></div>
+            <div id="currentStatusDisplay" style="display:none;"><strong>Status:</strong> <span id="status"></span></div>
+            <div id="statusDetailDisplay" style="display:none;"><strong>Details:</strong> <span id="statusDetail"></span></div>
+            <div id="logLinks" class="logs"></div>
+        </div>
+
+        <div class="output" id="diffPreviewContainer" style="display:none;">
+            <h2>Diff Preview (<span id="diffFileName"></span>)</h2>
+            <pre id="diffPreview"></pre>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

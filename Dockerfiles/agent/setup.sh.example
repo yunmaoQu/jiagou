@@ -1,0 +1,13 @@
+#!/bin/bash
+echo "--- Running setup.sh from user repository ---"
+date
+echo "Current directory: $(pwd)"
+echo "Listing files in /app/code:"
+ls -la /app/code
+echo "--- Finished setup.sh ---"
+
+# Example: Install a specific dependency if needed for the code analysis
+# (though it's better to have common ones in the Dockerfile)
+# if [ -f "/app/code/requirements-dev.txt" ]; then
+#   pip install -r /app/code/requirements-dev.txt
+# fi
