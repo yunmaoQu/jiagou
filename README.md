@@ -27,19 +27,18 @@
 graph TB
 
 User --> WebApp
-WebApp --> API[Codex API (Go)]
-API --> Storage[代码上传 / Git 拉取]
-API --> TaskManage[r[任务调度器]
-TaskManager --> DockerSpawner[容器管理]
-DockerSpawner --> Container[运行环境容器]
-Container --> Agent[Agent 执行任务]
-Agent --> LLM[LLM（OpenAI / 本地）]
-Agent --> Diff[生成修改 / diff / PR]
-Agent --> Logger[日志 & 结](https://pandoc.org/try/)果输出]
+WebApp --> API["Codex API (Go)"]
+API --> Storage["代码上传 / Git 拉取"]
+API --> TaskManager["任务调度器"]
+TaskManager --> DockerSpawner["容器管理"]
+DockerSpawner --> Container["运行环境容器"]
+Container --> Agent["Agent 执行任务"]
+Agent --> LLM["LLM（OpenAI / 本地）"]
+Agent --> Diff["生成修改 / diff / PR"]
+Agent --> Logger["日志 & 结果输出"]
 Logger --> API
 API --> User
 ```
-
 ---
 
 ## 🧱 容器运行模型参考（每个任务一容器）
