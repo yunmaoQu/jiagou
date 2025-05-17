@@ -1,80 +1,9 @@
 
-```python
-# Mapping of tool names to functions
-AVAILABLE_TOOLS = {
-    "run_shell_command": tool_run_shell_command,
-    "read_file_content": tool_read_file,
-    "edit_file_content": ,
-    "web_search_doc_and_reference":,
-    "call_api":,
-    "",
-}
-
-# OpenAI function schema for the tools
-TOOLS_SCHEMA = [
-    {
-        "type": "function",
-        "function": {
-            "name": "run_shell_command",
-            "description": "Executes a shell command in the specified directory (relative to /app/code) and returns its stdout, stderr, and exit code. Use for linters, tests, etc.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command_string": {
-                        "type": "string",
-                        "description": "The shell command to execute. E.g., 'pylint main.py' or 'npm test'.",
-                    },
-                    "target_directory": {
-                        "type": "string",
-                        "description": "The directory (relative to /app/code) in which to run the command. Defaults to '.' (code root). E.g., 'src' or 'tests'.",
-                        "default": "."
-                    }
-                },
-                "required": ["command_string"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "read_file_content",
-            "description": "Reads the content of a specified file (relative to /app/code).",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "file_path": {
-                        "type": "string",
-                        "description": "The relative path to the file from the root of the codebase (/app/code). E.g., 'src/utils.py'.",
-                    }
-                },
-                "required": ["file_path"],
-            },
-        },
-    }
-]
-# --- End Tool Definitions ---
-
-
-def get_llm_response_with_tool_calls(messages_history):
-    logging.info(f"Sending request to OpenAI API with {len(messages_history)} messages (tools enabled)...")
-    try:
-        client = openai.OpenAI(api_key=OPENAI_API_KEY)
-        response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=messages_history,
-            tools=TOOLS_SCHEMA,
-            tool_choice="auto" # Let the model decide if it wants to use a tool
-        )
-        return response.choices[0] # Return the full choice object
-    except Exception as e:
-        logging.error(f"Error calling OpenAI API: {e}")
-        return None
-```
-好的，这是一个非常宏大的目标，涉及到将我们当前的单体应用（尽管有 goroutine 模拟队列）重构成一个**完全分布式、可伸缩、生产级的云原生系统**。
+重构成一个**完全分布式、可伸缩、生产级的云原生系统**。
 
 实现所有这些组件（Kafka, 独立 Worker 服务, MySQL+Redis, Kubernetes, COS）的完整代码会非常庞大，并且会依赖具体的云提供商（如腾讯云 COS）或自建基础设施。
 
-**我将为您提供一个架构蓝图和关键代码片段的示例，重点展示如何将这些组件集成进来，以及代码结构会如何演变。** 这将是一个高级别的设计和部分实现，而不是一个可以直接运行的完整项目。
+ 这将是一个高级别的设计和部分实现，而不是一个可以直接运行的完整项目，接下来你要做的就是完成整个项目。
 
 ---
 
