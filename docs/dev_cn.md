@@ -1,64 +1,5 @@
-1.  **Backend (Go):**
-    *   API endpoints for task creation (`/task`) and status/log retrieval.
-    *   Logic for Git cloning and ZIP extraction.
-    *   Docker container spawning and management.
-    *   Task state management (in-memory for simplicity, can be extended to a DB).
-    *   Serving log files.
-2.  **Agent Container (Python):**
-    *   `Dockerfile` to build the agent image.
-    *   `agent.py` script that:
-        *   Takes task instructions and code.
-        *   Calls OpenAI LLM.
-        *   Generates a diff.
-        *   Attempts to create a GitHub PR (if GitHub repo and token are provided).
-    *   `requirements.txt` for Python dependencies.
-    *   Example `AGENTS.md` and `setup.sh`.
-3.  **Basic Frontend (HTML/JS):**
-    *   A simple interface to submit tasks and view results/logs.
-4.  **README and Configuration:**
-    *   Instructions on how to set up, build, and run the system.
-    *   `.env.example` for configuration.
 
-Let's get started!
-
----
-
-## Codex-like SYS 
-
-Here's the directory structure and file contents:
-
-```
-codex-sys/
-├── backend/
-│   ├── main.go
-│   ├── api/
-│   │   └── handlers.go
-│   ├── docker_utils/
-│   │   └── spawner.go
-│   ├── tasks/
-│   │   └── manager.go
-│   ├── utils/
-│   │   └── utils.go
-│   ├── go.mod
-│   └── go.sum
-├── dockerfiles/
-│   └── agent/
-│       ├── Dockerfile
-│       ├── agent.py
-│       ├── requirements.txt
-│       ├── AGENTS.md.example  # Example instructions for the agent
-│       └── setup.sh.example   # Example setup script
-├── frontend/
-│   ├── index.html
-│   └── script.js
-├── storage/                  # Will be created by the backend
-│   ├── repos/                # For cloned/uploaded code
-│   └── logs/                 # For task logs and outputs
-├── .env.example
-└── README.md
-```
-
-# Codex-like SYS
+# Codex-like SYS 开发指南
 
 ## 🎯 场景描述
 
@@ -249,8 +190,6 @@ if __name__ == "__main__":
 | LLM API | 使用代理或限速策略 |
 
 
-重构成一个**完全分布式、可伸缩、生产级的云原生系统**。
-这将是一个高级别的设计和部分实现，而不是一个可以直接运行的完整项目
 
 ---
 
@@ -380,30 +319,7 @@ graph LR
     *   如果任务完成，API 服务返回指向 `COSLogsBucket` 中结果文件的**预签名 URL** 或通过 API 代理下载这些文件。
 
 ---
-
-## 关键代码结构与示例片段
-
-### 1. `backend/` (API 服务 - Go)
-
-#### `backend/cmd/api/main.go` (简化)
-
-
-#### `backend/internal/api/task_handlers.go` (简化)
-
-
-#### `backend/internal/task/task_model.go` (MySQL interaction)
-
-
-#### `backend/internal/platform/kafka/producer.go` (Kafka Producer Wrapper)
-
-
-#### `backend/internal/platform/objectstorage/cos.go` (COS Wrapper)
-
-
----
-
-### 2. `worker/` (Worker 服务 - Go)
-
+### 2. worker
 This would be a separate Go application, built into a Docker image, and deployed on Kubernetes.
 
 ---
@@ -441,8 +357,4 @@ This upload logic is often better handled by a K8s sidecar container or a post-r
     *   Worker service needs permission to read/write to COS, interact with Kubernetes API (create Jobs, get Job status), and read/write to MySQL/Redis.
     *   Agent Pods (if they handle their own COS interactions via CSI or direct SDK calls) need COS read (for code) and write (for logs) permissions. This is often managed via K8s Service Accounts + IRSA (AWS), Workload Identity (GCP/Azure), or OIDC federation with Tencent Cloud CAM.
 
----
 
-This is a significant architectural shift. Each component introduced (Kafka, K8s, distributed DBs, object storage) has its own complexities and learning curve. The provided code snippets are illustrative and would need substantial fleshing out, error handling, and testing to be production-ready.
-
-Start by tackling one piece at a time, e.g., introducing Kafka between the API and a simplified worker first, then moving the worker to K8s, then integrating COS, etc. This iterative approach will be more manageable.
