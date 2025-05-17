@@ -2,7 +2,6 @@ package worker
 
 import (
 	"log"
-
 )
 
 // 入口函数，在 cmd/worker/main.go 中调用

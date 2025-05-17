@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -87,7 +86,7 @@ func (a *Agent) Run() error {
 // readTargetFile 读取目标文件内容
 func (a *Agent) readTargetFile() (string, error) {
 	filePath := filepath.Join(a.codeDir, a.targetFile)
-	data, err := io.Read(filePath)
+	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return "", err
 	}
@@ -97,7 +96,7 @@ func (a *Agent) readTargetFile() (string, error) {
 // readAgentInstructions 读取自定义Agent指令
 func (a *Agent) readAgentInstructions() string {
 	agentsFilePath := filepath.Join(a.codeDir, "AGENTS.md")
-	data, err := io.Read(agentsFilePath)
+	data, err := os.ReadFile(agentsFilePath)
 	if err != nil {
 		// 如果文件不存在，返回空字符串
 		return ""
@@ -144,7 +143,7 @@ func (a *Agent) callLLM(prompt string) (string, error) {
 // saveResponse 保存LLM响应
 func (a *Agent) saveResponse(response string) error {
 	responsePath := filepath.Join(a.outputDir, "llm_response.txt")
-	return ioutil.WriteFile(responsePath, []byte(response), 0644)
+	return os.WriteFile(responsePath, []byte(response), 0644)
 }
 
 // generateDiff 生成差异文件
@@ -157,7 +156,7 @@ func (a *Agent) generateDiff(originalCode, response string) error {
 
 	// 保存修改后的代码
 	modifiedPath := filepath.Join(a.outputDir, "modified_code.txt")
-	if err := ioutil.WriteFile(modifiedPath, []byte(modifiedCode), 0644); err != nil {
+	if err := os.WriteFile(modifiedPath, []byte(modifiedCode), 0644); err != nil {
 		return err
 	}
 
@@ -194,5 +193,5 @@ func (a *Agent) createPR(response string) error {
 	// 保存PR URL到文件
 	prURL := "https://github.com/example/repo/pull/123" // 示例URL
 	prURLPath := filepath.Join(a.outputDir, "pr_url.txt")
-	return io.WriteFile(prURLPath, []byte(prURL), 0644)
+	return os.WriteFile(prURLPath, []byte(prURL), 0644)
 }
