@@ -39,7 +39,7 @@ func (h *TaskHandler) Handle(ctx context.Context, key []byte, value []byte) erro
 	log.Printf("Worker: Received task %s for processing. Type: %s, Code: %s", msg.TaskID, msg.InputType, msg.CodeLocation)
 
 	// 1. Update task status in DB
-	if err := h.db.UpdateTaskStatus(ctx, msg.TaskID, taskdef.StatusProcessing, "Worker received task"); err != nil {
+	if err := h.db.UpdateTaskStatus(ctx, msg.TaskID, task.StatusProcessing, "Worker received task"); err != nil {
 		log.Printf("Worker: Failed to update task %s status to Processing: %v", msg.TaskID, err)
 		return err // Nack and retry
 	}
@@ -49,28 +49,28 @@ func (h *TaskHandler) Handle(ctx context.Context, key []byte, value []byte) erro
 	// In K8s, this could be an emptyDir volume for the worker pod itself, or just /tmp.
 	localTaskWorkspace := filepath.Join(os.TempDir(), "codex_worker_space", msg.TaskID)
 	if err := os.MkdirAll(localTaskWorkspace, 0755); err != nil {
-		h.db.UpdateTaskStatus(ctx, msg.TaskID, taskdef.StatusFailed, fmt.Sprintf("Failed to create local workspace: %v", err))
+		h.db.UpdateTaskStatus(ctx, msg.TaskID, task.StatusFailed, fmt.Sprintf("Failed to create local workspace: %v", err))
 		return err
 	}
 	defer os.RemoveAll(localTaskWorkspace) // Cleanup
 
 	// 2. Download/Prepare code
-	if err := h.db.UpdateTaskStatus(ctx, msg.TaskID, taskdef.StatusDownloadingCode, "Preparing code"); err != nil { /* ... */
+	if err := h.db.UpdateTaskStatus(ctx, msg.TaskID, task.StatusDownloadingCode, "Preparing code"); err != nil { /* ... */
 	}
 
 	codeSourceDir := filepath.Join(localTaskWorkspace, "code_source") // Where raw code goes
 	os.MkdirAll(codeSourceDir, 0755)
 
-	if msg.InputType == string(taskdef.InputGit) {
+	if msg.InputType == string(task.InputGit) {
 		log.Printf("Worker: Cloning Git repo %s for task %s", msg.CodeLocation, msg.TaskID)
 		cmd := exec.Command("git", "clone", "--depth=1", msg.CodeLocation, codeSourceDir)
 		if output, err := cmd.CombinedOutput(); err != nil {
 			errMsg := fmt.Sprintf("Failed to clone Git repo: %v. Output: %s", err, string(output))
 			log.Printf("Worker: Task %s: %s", msg.TaskID, errMsg)
-			h.db.UpdateTaskStatus(ctx, msg.TaskID, taskdef.StatusFailed, errMsg)
+			h.db.UpdateTaskStatus(ctx, msg.TaskID, task.StatusFailed, errMsg)
 			return nil // Acknowledge, don't retry clone errors usually
 		}
-	} else if msg.InputType == string(taskdef.InputZip) {
+	} else if msg.InputType == string(task.InputZip) {
 		// msg.CodeLocation is S3 key like "tmp_zips/<task_id>/code.zip"
 		// Bucket name comes from config
 		zipFileName := filepath.Base(msg.CodeLocation) // e.g. code.zip
@@ -87,7 +87,7 @@ func (h *TaskHandler) Handle(ctx context.Context, key []byte, value []byte) erro
 		if err != nil {
 			errMsg := fmt.Sprintf("Failed to download ZIP from COS: %v", err)
 			log.Printf("Worker: Task %s: %s", msg.TaskID, errMsg)
-			h.db.UpdateTaskStatus(ctx, msg.TaskID, taskdef.StatusFailed, errMsg)
+			h.db.UpdateTaskStatus(ctx, msg.TaskID, task.StatusFailed, errMsg)
 			os.Remove(localZipPath)
 			return nil
 		}
@@ -100,7 +100,7 @@ func (h *TaskHandler) Handle(ctx context.Context, key []byte, value []byte) erro
 		if output, err := cmd.CombinedOutput(); err != nil {
 			errMsg := fmt.Sprintf("Failed to unzip archive: %v. Output: %s", err, string(output))
 			log.Printf("Worker: Task %s: %s", msg.TaskID, errMsg)
-			h.db.UpdateTaskStatus(ctx, msg.TaskID, taskdef.StatusFailed, errMsg)
+			h.db.UpdateTaskStatus(ctx, msg.TaskID, task.StatusFailed, errMsg)
 			os.Remove(localZipPath)
 			return nil
 		}
@@ -108,7 +108,7 @@ func (h *TaskHandler) Handle(ctx context.Context, key []byte, value []byte) erro
 	} else {
 		errMsg := fmt.Sprintf("Unknown input type: %s", msg.InputType)
 		log.Printf("Worker: Task %s: %s", msg.TaskID, errMsg)
-		h.db.UpdateTaskStatus(ctx, msg.TaskID, taskdef.StatusFailed, errMsg)
+		h.db.UpdateTaskStatus(ctx, msg.TaskID, task.StatusFailed, errMsg)
 		return nil
 	}
 	log.Printf("Worker: Code prepared for task %s in %s", msg.TaskID, codeSourceDir)
@@ -128,13 +128,13 @@ func (h *TaskHandler) Handle(ctx context.Context, key []byte, value []byte) erro
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to upload agent input code to COS: %v", err)
 		log.Printf("Worker: Task %s: %s", msg.TaskID, errMsg)
-		h.db.UpdateTaskStatus(ctx, msg.TaskID, taskdef.StatusFailed, errMsg)
+		h.db.UpdateTaskStatus(ctx, msg.TaskID, task.StatusFailed, errMsg)
 		return nil
 	}
 	log.Printf("Worker: Agent input code uploaded to COS for task %s", msg.TaskID)
 
 	// 3. Define and Run K8s Job for the Agent
-	if err := h.db.UpdateTaskStatus(ctx, msg.TaskID, taskdef.StatusRunningAgent, "Launching agent"); err != nil { /* ... */
+	if err := h.db.UpdateTaskStatus(ctx, msg.TaskID, task.StatusRunningAgent, "Launching agent"); err != nil { /* ... */
 	}
 
 	agentJobName := fmt.Sprintf("codex-agent-%s", strings.ReplaceAll(msg.TaskID, "_", "-")) // K8s names are restrictive
@@ -145,7 +145,7 @@ func (h *TaskHandler) Handle(ctx context.Context, key []byte, value []byte) erro
 	if openaiAPIKey == "" {
 		log.Printf("Worker: Task %s: WORKER_OPENAI_API_KEY not set for worker, cannot pass to agent.", msg.TaskID)
 		// ... handle error ...
-		h.db.UpdateTaskStatus(ctx, msg.TaskID, taskdef.StatusFailed, "OpenAI API Key not configured for agent")
+		h.db.UpdateTaskStatus(ctx, msg.TaskID, task.StatusFailed, "OpenAI API Key not configured for agent")
 		return nil
 	}
 	agentEnvVars := map[string]string{
@@ -181,7 +181,7 @@ func (h *TaskHandler) Handle(ctx context.Context, key []byte, value []byte) erro
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to launch K8s agent job: %v", err)
 		log.Printf("Worker: Task %s: %s", msg.TaskID, errMsg)
-		h.db.UpdateTaskStatus(ctx, msg.TaskID, taskdef.StatusFailed, errMsg)
+		h.db.UpdateTaskStatus(ctx, msg.TaskID, task.StatusFailed, errMsg)
 		return nil
 	}
 	log.Printf("Worker: K8s agent job %s launched for task %s", agentJobName, msg.TaskID)

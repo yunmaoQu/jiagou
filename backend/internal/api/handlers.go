@@ -1,9 +1,9 @@
 package api
 
 import (
-	"codex-sys/backend/tasks"
-	"codex-sys/backend/utils"
 	"fmt"
+	"github.com/yunmaoQu/codex-sys/internal/task"
+	"github.com/yunmaoQu/codex-sys/utils"
 	"io"
 	"log"
 	"mime/multipart"
@@ -65,7 +65,7 @@ func HandleCreateTask(c *gin.Context) {
 		defer zipFile.Close()
 	}
 
-	task := &tasks.Task{
+	task := &task.Task{
 		ID:              taskID,
 		GitURL:          gitURL,
 		TargetFile:      targetFile,

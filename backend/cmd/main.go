@@ -1,9 +1,9 @@
 package main
 
 import (
-	"codex-sys/backend/api"
-	"codex-sys/backend/tasks"
-	"codex-sys/backend/utils"
+	"github.com/yunmaoQu/codex-sys/internal/api"
+	"github.com/yunmaoQu/codex-sys/internal/task"
+	"github.com/yunmaoQu/codex-sys/utils"
 	"log"
 	"os"
 	"path/filepath"
@@ -44,7 +44,7 @@ func main() {
 	}
 
 	// Initialize Task Manager
-	tasks.InitManager()
+	task.InitManager()
 
 	router := gin.Default()
 

@@ -1,11 +1,12 @@
 package api
 
 import (
-	"codex-sys/backend/internal/api"
-	"codex-sys/backend/internal/config"
-	"codex-sys/backend/internal/platform/database"
-	"codex-sys/backend/internal/platform/kafka"
-	"codex-sys/backend/internal/platform/objectstorage"
+	"
+	"github.com/yunmaoQu/codex-sys/internal/config"
+	"github.com/yunmaoQu/codex-sys/internal/platform/kafka"
+	"github.com/yunmaoQu/codex-sys/internal/platform/objectstorage"
+	"github.com/yunmaoQu/codex-sys/internal/platform/database"
+
 	"log"
 
 	"github.com/gin-gonic/gin"
