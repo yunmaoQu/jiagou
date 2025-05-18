@@ -42,8 +42,7 @@ jobs:
     - name: Build worker
       run: |
         mkdir -p bin
-        cd worker
-        go build -v -o ../bin/worker main.go
+        go build -v -o bin/worker worker/main.go
 
     - name: Test
       run: go test -v ./internal/... ./utils/...
