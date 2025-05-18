@@ -26,6 +26,11 @@ jobs:
     - name: Install dependencies
       run: go mod download
 
+    - name: Fix docker/distribution version
+      run: |
+        go get github.com/docker/distribution@v2.7.1
+        go mod tidy
+
     - name: Build API server
       run: go build -v -o bin/api ./cmd/main.go
 
