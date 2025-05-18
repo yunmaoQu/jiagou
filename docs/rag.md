@@ -349,7 +349,8 @@ class ToolRegistry:
 **目标：** 使开源 LLM (如 CodeLlama, StarCoder, DeepSeek Coder，特别是那些在 SWE-bench 等基准上表现好的模型) 更擅长您的特定任务类型、遵循您的代码风格、或更好地进行 CoT 推理和工具调用。
 
 1.  **数据收集 (关键！):**
-    *   **Agent 交互日志：** `(prompt_to_llm, ideal_llm_response_with_cot_and_tool_call)` 对。这里的 `ideal_llm_response` 可能需要人工修正或由非常强大的模型 (如 GPT-4) 生成作为教师。
+    *   **Agent 交互日志：** `(prompt_to_llm, ideal_llm_response_with_cot_and_tool_call)` 
+     `ideal_llm_response` 可能需要人工修正或由非常强大的模型 (如 GPT-o3) 生成作为教师。
     *   **代码修改数据：** `(code_before, user_instruction, code_after_with_agent_help)`。
     *   **用户反馈：** 将用户对 Agent 生成结果的评分、修正、评论整合进来。
     *   **格式：** 通常是 JSONL，每行一个样本，格式遵循所选微调框架的要求 (如 Alpaca 格式，ShareGPT 格式)。
@@ -653,8 +654,7 @@ flowchart LR
         AgentPods -->|JSONL| logs
     end
 ```
-
-闭环跑起来后，你就拥有了：  
+ 
 • 高召回、高精度的 **RAG**  
 • 自我思考、自我批判的 **CoT/MCP**  
 • 持续进化的 **微调模型**  
