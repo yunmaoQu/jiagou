@@ -65,17 +65,16 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+    - name: Set up Docker Compose
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y docker-compose-plugin
+        docker compose version
 
-    - name: Build API Docker image
-      uses: docker/build-push-action@v5
-      with:
-        context: ./backend
-        file: Dockerfile
-        push: false
-        tags: codex-api:latest
-        load: true
+    - name: Build with Docker Compose
+      run: |
+        cd backend
+        docker compose build
 
     - name: Build Worker Docker image
       uses: docker/build-push-action@v5
