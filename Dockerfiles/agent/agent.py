@@ -7,6 +7,13 @@ import subprocess
 import shutil
 from pathlib import Path
 from dotenv import load_dotenv
+import json
+import uuid
+from typing import Dict, Any
+import requests
+from pydantic import BaseModel, Field
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 # --- Configuration ---
 # Load .env file from /app (if it exists, for local testing) or rely on Docker env vars
@@ -16,22 +23,29 @@ if dotenv_path.exists():
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN") # Can be overridden by user via API
-MODEL_NAME = os.getenv("OPENAI_MODEL", "gpt-4o") # or "gpt-3.5-turbo"
+MODEL_NAME = os.getenv("OPENAI_MODEL", "gpt-4o") #
 
-CODE_DIR = Path("/app/code")
-OUTPUT_DIR = Path("/app/output")
+CODE_DIR = Path("/app/code").resolve()
+OUTPUT_DIR = Path("/app/output").resolve()
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+FINE_TUNE_LOG_DIR = OUTPUT_DIR / "finetuning_data"
+FINE_TUNE_LOG_DIR.mkdir(exist_ok=True)
+MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://localhost:8000")
+MAX_MCP_ITERATIONS = int(os.getenv("MAX_MCP_ITERATIONS", "7"))
+CMD_TIMEOUT = int(os.getenv("CMD_TIMEOUT", "20"))
+CMD_MAX_OUTPUT = int(os.getenv("CMD_MAX_OUTPUT", "20000"))
 
 # --- Logging ---
 log_file_path = OUTPUT_DIR / "agent.log"
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
+    format="%(asctime)s | %(levelname)-8s | %(message)s",
     handlers=[
-        logging.FileHandler(log_file_path),
-        logging.StreamHandler(sys.stdout) # Also print to stdout for Docker logs
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(log_file_path, encoding="utf-8")
     ]
 )
+log = logging.getLogger("codex-agent")
 
 # --- Helper Functions ---
 def run_command(command, cwd=None, env=None):
@@ -363,5 +377,129 @@ def upload_output_to_cos(output_dir_path: Path, cos_bucket: str, cos_prefix: str
 # else:
 #    logging.warning("COS output bucket/prefix not configured. Skipping upload from agent.")
 
+# --- RAG 相关 ─────────────────────────────────
+def get_relevant_code_snippets(task_description, target_file_content, all_code_docs, max_snippets=3):
+    logging.info("RAG: 检索相关代码片段...")
+    if not all_code_docs:
+        return ""
+    query_text = f"{task_description}\n\nContext from target file:\n{target_file_content[:1000]}"
+    try:
+        vectorizer = TfidfVectorizer(stop_words='english', max_df=0.95, min_df=2, ngram_range=(1,2))
+        tfidf_matrix = vectorizer.fit_transform(all_code_docs + [query_text])
+        query_vector = tfidf_matrix[-1]
+        doc_vectors = tfidf_matrix[:-1]
+        similarities = cosine_similarity(query_vector, doc_vectors).flatten()
+        relevant_indices = similarities.argsort()[-max_snippets*2:][::-1]
+        retrieved_snippets_text = []
+        added_content = set()
+        for i in relevant_indices:
+            if similarities[i] > 0.05:
+                snippet_content = all_code_docs[i][:300]
+                first_few_words = " ".join(snippet_content.split()[:10])
+                if first_few_words not in added_content:
+                    retrieved_snippets_text.append(f"--- Relevant Snippet {len(retrieved_snippets_text)+1} (Similarity: {similarities[i]:.2f}) ---\n{snippet_content}\n")
+                    added_content.add(first_few_words)
+                if len(retrieved_snippets_text) >= max_snippets:
+                    break
+        if retrieved_snippets_text:
+            return "\n".join(retrieved_snippets_text)
+        else:
+            return ""
+    except Exception as e:
+        logging.error(f"RAG 错误: {e}")
+        return ""
+
+def load_codebase_for_rag(code_dir_path: Path, target_file_rel_path: str):
+    docs = []
+    relevant_extensions = ['.py', '.go', '.js', '.ts', '.java', '.c', '.cpp', '.h', '.cs', '.rb', '.php', '.swift', '.kt', '.rs', '.md', '.txt']
+    CHUNK_SIZE_LINES = 30 
+    OVERLAP_LINES = 5
+    for item in code_dir_path.rglob('*'):
+        if item.is_file() and item.suffix.lower() in relevant_extensions:
+            try:
+                with open(item, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                    if len(content) > 100:
+                        lines = content.splitlines()
+                        if len(lines) > CHUNK_SIZE_LINES * 1.5 :
+                            for i in range(0, len(lines), CHUNK_SIZE_LINES - OVERLAP_LINES):
+                                chunk_lines = lines[i : i + CHUNK_SIZE_LINES]
+                                if chunk_lines:
+                                    chunk_content = "\n".join(chunk_lines)
+                                    docs.append(f"File: {item.relative_to(code_dir_path)}\n```\n{chunk_content}\n```")
+                        else:
+                             docs.append(f"File: {item.relative_to(code_dir_path)}\n```\n{content}\n```")
+            except Exception as e:
+                logging.warning(f"RAG: 读取文件失败 {item}: {e}")
+    return docs
+
+# --- MCP 交互辅助 ─────────────────────────────
+def mcp_step(task_id:str, payload:Dict[str,Any]) -> Dict[str,Any]:
+    url = MCP_SERVER_URL.rstrip("/") + "/step"
+    resp = requests.post(url, json={"task_id":task_id, "payload":payload}, timeout=30)
+    resp.raise_for_status()
+    return resp.json()
+
+def record_iteration(task_id:str, iteration:int, data:Dict[str,Any]) -> None:
+    file = FINE_TUNE_LOG_DIR / f"{task_id}.jsonl"
+    with file.open("a", encoding="utf-8") as f:
+        f.write(json.dumps({"iteration":iteration, **data}, ensure_ascii=False) + "\n")
+
+# --- MCP/CoT 主循环 ──────────────────────────
+def run_task(initial_task:Dict[str,Any]) -> None:
+    task_id = initial_task.get("task_id") or str(uuid.uuid4())
+    payload  = {"event":"start", "task":initial_task}
+    for iteration in range(1, MAX_MCP_ITERATIONS+1):
+        log.info(f"[{task_id}] 第 {iteration} 轮")
+        mcp_reply = mcp_step(task_id, payload)
+        record_iteration(task_id, iteration, {
+            "agent_input":payload,
+            "mcp_reply":mcp_reply
+        })
+        if mcp_reply.get("event") == "finish":
+            log.info(f"[{task_id}] 完成：{mcp_reply.get('summary','')}")
+            break
+        if mcp_reply.get("event") != "tool_call":
+            log.warning(f"[{task_id}] 未知事件 {mcp_reply.get('event')}，终止")
+            break
+        tool_name = mcp_reply["name"]
+        arguments = mcp_reply.get("arguments", {})
+        if tool_name not in AVAILABLE_TOOLS:
+            payload = {
+                "event":"tool_result",
+                "name":tool_name,
+                "result":{"status":"failure","message":"未知工具"}
+            }
+            continue
+        try:
+            result = AVAILABLE_TOOLS[tool_name](**arguments)
+        except Exception as exc:
+            log.exception(f"工具 {tool_name} 崩溃")
+            result = {"status":"failure","message":str(exc)}
+        payload = {
+            "event":"tool_result",
+            "name":tool_name,
+            "arguments":arguments,
+            "result":result
+        }
+    else:
+        mcp_step(task_id, {"event":"agent_abort","reason":"max_iterations"})
+
+# --- CLI 入口 ────────────────────────────────
+def load_task_from_cli() -> Dict[str,Any]:
+    import argparse
+    p = argparse.ArgumentParser()
+    p.add_argument("--task_file", help="写一个包含任务 JSON 的文件路径")
+    args = p.parse_args()
+    if args.task_file:
+        return json.loads(Path(args.task_file).read_text())
+    else:
+        return json.loads(sys.stdin.read())
+
 if __name__ == "__main__":
-    main()
+    try:
+        task = load_task_from_cli()
+    except Exception as exc:
+        print("无法解析任务 JSON:", exc, file=sys.stderr)
+        sys.exit(1)
+    run_task(task)
