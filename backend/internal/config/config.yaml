@@ -1,0 +1,42 @@
+server:
+  port: "8080"
+  env: "development"
+
+database:
+  host: "localhost"
+  port: "3306"
+  user: "root"
+  password: "123456"
+  name: "codex_sys"
+  dsn: ""  # 可留空，程序会自动构建
+
+redis:
+  host: "localhost"
+  port: "6379"
+  password: ""
+  db: 0
+
+kafka:
+  brokers: ["localhost:9092"]
+  topics:
+    task: "codex-tasks"
+    result: "codex-results"
+
+cos:
+  secretid: "your-cos-secret-id"
+  secretkey: "your-cos-secret-key"
+  region: "ap-guangzhou"
+  buckets:
+    code: "codex-code"
+    logs: "codex-logs"
+
+k8s:
+  namespace: "default"
+  agentimage: "codex-agent:latest"
+  serviceaccount: "codex-agent"
+
+openai:
+  apikey: "your-openai-api-key"
+
+github:
+  token: "your-github-token"

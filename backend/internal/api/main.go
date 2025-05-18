@@ -2,18 +2,23 @@ package api
 
 import (
 	"fmt"
+	"log"
+
 	"github.com/yunmaoQu/codex-sys/internal/config"
 	"github.com/yunmaoQu/codex-sys/internal/platform/database"
 	"github.com/yunmaoQu/codex-sys/internal/platform/kafka"
 	"github.com/yunmaoQu/codex-sys/internal/platform/objectstorage"
-	"log"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
 // SetupAndRun initializes all dependencies and starts the API server
 func SetupAndRun() {
-	cfg := config.LoadAPIConfig() // Load API-specific config from .env or config file
+	cfg, err := config.LoadFromYAML("/backend/config") // Load API-specific config from .env or config file
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
+	}
 
 	// --- Initialize Platforms ---
 	db, err := database.NewMySQLConnection(cfg.Database.DSN)
@@ -45,8 +50,28 @@ func SetupAndRun() {
 
 	// --- Setup Router & Handlers ---
 	router := gin.Default()
+
+	// CORS 配置
+	corsConfig := cors.DefaultConfig()
+	corsConfig.AllowOrigins = []string{"*"}
+	corsConfig.AllowMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
+	corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization"}
+	router.Use(cors.New(corsConfig))
+
+	// 注入 db 到 gin.Context
+	router.Use(func(c *gin.Context) {
+		c.Set("db", db)
+		c.Next()
+	})
+
 	// Pass DB, Kafka Producer, COS Client to handlers
 	RegisterRoutes(router, db, kafkaProducer, cosClient /*, redisClient */)
+
+	// 前端静态文件服务
+	router.Static("/ui", "../frontend")
+	router.GET("/", func(c *gin.Context) {
+		c.Redirect(302, "/ui/index.html")
+	})
 
 	log.Printf("API Server starting on port %s", cfg.Server.Port)
 	if err := router.Run(":" + cfg.Server.Port); err != nil {
