@@ -146,9 +146,6 @@ codex-sys/
 *   Job queue (e.g., Pulsar) for better task management.
 *   More robust error handling and retry mechanisms.
 *   Configurable container resource limits.
-```
-
----
 
 ### 2. `.env.example`
 
