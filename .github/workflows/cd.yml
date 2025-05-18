@@ -71,8 +71,8 @@ jobs:
     - name: Build API Docker image
       uses: docker/build-push-action@v5
       with:
-        context: .
-        file: ./Dockerfiles/api/Dockerfile
+        context: ./backend
+        file: ./backend/Dockerfile
         push: false
         tags: codex-api:latest
         load: true
