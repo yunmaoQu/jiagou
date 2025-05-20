@@ -682,7 +682,7 @@ if __name__ == "__main__":
 
 ### 如何测试：
 
-1.  **确保 `OPENAI_API_KEY` 有效且模型支持函数调用** (e.g., `gpt-4o`, `gpt-4-turbo`, `gpt-3.5-turbo-0125` 或更新版本)。
+1.  **确保 `OPENAI_API_KEY` 有效且模型支持函数调用** (e.g., `gpt-4.1`, `claude-3.7`)。
 2.  **构建新的 Agent Docker 镜像：**
     ```bash
     cd dockerfiles/agent
