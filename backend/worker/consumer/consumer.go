@@ -1,4 +1,4 @@
-package worker
+package consumer
 
 import (
 	"context"
@@ -23,10 +23,11 @@ type TaskConsumer struct {
 	cosClient     *cos.Client
 	ctx           context.Context
 	cancel        context.CancelFunc
+	taskTopic     string
 }
 
 // NewTaskConsumer 创建新的任务消费者
-func NewTaskConsumer(kafkaBrokers []string, cosClient *cos.Client) (*TaskConsumer, error) {
+func NewTaskConsumer(kafkaBrokers []string, cosClient *cos.Client, taskTopic string) (*TaskConsumer, error) {
 	config := sarama.NewConfig()
 	config.Consumer.Return.Errors = true
 	config.Consumer.Offsets.Initial = sarama.OffsetOldest
@@ -42,13 +43,14 @@ func NewTaskConsumer(kafkaBrokers []string, cosClient *cos.Client) (*TaskConsume
 		cosClient:     cosClient,
 		ctx:           ctx,
 		cancel:        cancel,
+		taskTopic:     taskTopic,
 	}, nil
 }
 
 // Start 开始消费任务
 func (c *TaskConsumer) Start() error {
 	// 订阅任务主题
-	partitionConsumer, err := c.kafkaConsumer.ConsumePartition("codex-tasks", 0, sarama.OffsetNewest)
+	partitionConsumer, err := c.kafkaConsumer.ConsumePartition(c.taskTopic, 0, sarama.OffsetNewest)
 	if err != nil {
 		return fmt.Errorf("failed to start partition consumer: %w", err)
 	}

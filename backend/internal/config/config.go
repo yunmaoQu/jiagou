@@ -13,7 +13,7 @@ type Config struct {
 		Env  string
 	}
 
-	// Database configuration
+	// Mysql configuration
 	Database struct {
 		Host     string
 		Port     string
@@ -80,15 +80,6 @@ func LoadFromYAML(path string) (*Config, error) {
 		return nil, err
 	}
 	return &cfg, nil
-}
-
-// Helper functions
-func getEnv(key, defaultValue string) string {
-	value := os.Getenv(key)
-	if value == "" {
-		return defaultValue
-	}
-	return value
 }
 
 func buildDSN(user, password, host, port, dbName string) string {
