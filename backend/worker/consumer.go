@@ -4,17 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Shopify/sarama"
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/client"
+	"github.com/tencentyun/cos-go-sdk-v5"
 	"io"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"github.com/Shopify/sarama"
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/client"
-	"github.com/tencentyun/cos-go-sdk-v5"
 )
 
 // TaskConsumer 任务消费者
@@ -120,7 +120,7 @@ func (c *TaskConsumer) downloadCode(codeLocation string) error {
 		// 从 COS 下载 ZIP 文件
 		// 解析 COS 路径
 		cosPath := strings.TrimPrefix(codeLocation, "cos://")
-		
+
 		// 下载到临时文件
 		zipFile, err := os.CreateTemp("", "codex-*.zip")
 		if err != nil {
@@ -128,21 +128,20 @@ func (c *TaskConsumer) downloadCode(codeLocation string) error {
 		}
 		defer os.Remove(zipFile.Name())
 		defer zipFile.Close()
-		
-		// 使用 COS 客户端下载文件
-		// 注意：这里简化了实现，实际需要根据 COS SDK 调整
+
+		// todo 使用 COS 客户端下载文件,注意：这里简化了实现，实际需要根据 COS SDK 调整
 		opt := &cos.ObjectGetOptions{}
 		resp, err := c.cosClient.Object.Get(context.Background(), cosPath, opt)
 		if err != nil {
 			return fmt.Errorf("failed to download from COS: %w", err)
 		}
 		defer resp.Body.Close()
-		
+
 		// 写入临时文件
 		if _, err := io.Copy(zipFile, resp.Body); err != nil {
 			return fmt.Errorf("failed to write zip file: %w", err)
 		}
-		
+
 		// 解压文件
 		cmd := exec.Command("unzip", "-o", zipFile.Name(), "-d", tmpDir)
 		output, err := cmd.CombinedOutput()
@@ -152,18 +151,18 @@ func (c *TaskConsumer) downloadCode(codeLocation string) error {
 	} else {
 		return fmt.Errorf("unsupported code location format: %s", codeLocation)
 	}
-	
+
 	return nil
 }
 
 // runAgent 运行 Agent
 func (c *TaskConsumer) runAgent(task struct {
-	TaskID        string `json:"task_id"`
-	CodeLocation  string `json:"code_location"`
-	TargetFile    string `json:"target_file"`
-	Description   string `json:"description"`
-	GitHubToken   string `json:"github_token,omitempty"`
-	APIKeySource  string `json:"api_key_source"`
+	TaskID       string `json:"task_id"`
+	CodeLocation string `json:"code_location"`
+	TargetFile   string `json:"target_file"`
+	Description  string `json:"description"`
+	GitHubToken  string `json:"github_token,omitempty"`
+	APIKeySource string `json:"api_key_source"`
 }) error {
 	// 获取 Docker 客户端
 	cli, err := client.NewClientWithOpts(client.FromEnv)
@@ -197,7 +196,7 @@ func (c *TaskConsumer) runAgent(task struct {
 	// 主机配置（挂载卷）
 	hostConfig := &container.HostConfig{
 		Binds: []string{
-			codeDir + ":/app/code", // 挂载代码目录
+			codeDir + ":/app/code",     // 挂载代码目录
 			outputDir + ":/app/output", // 挂载输出目录
 		},
 		// 可选：限制网络访问

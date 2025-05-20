@@ -1,6 +1,5 @@
 package utils
 
-//docker_utils
 import (
 	"context"
 	"fmt"
@@ -55,14 +54,14 @@ func RunAgentContainer(taskDef *task.Definition) {
 			if pullErr != nil {
 				log.Printf("Error pulling image %s for task %s: %v", AgentImageName, taskDef.ID, pullErr)
 				// Update task status in database
-			if DB != nil {
-				err := task.UpdateStatus(context.Background(), DB, taskDef.ID, task.StatusFailed, fmt.Sprintf("Failed to pull agent image: %s", AgentImageName))
-				if err != nil {
-					log.Printf("Error updating task status: %v", err)
+				if DB != nil {
+					err := task.UpdateStatus(context.Background(), DB, taskDef.ID, task.StatusFailed, fmt.Sprintf("Failed to pull agent image: %s", AgentImageName))
+					if err != nil {
+						log.Printf("Error updating task status: %v", err)
+					}
+				} else {
+					log.Printf("Task %s status: FAILED - %s (DB not initialized)", taskDef.ID, fmt.Sprintf("Failed to pull agent image: %s", AgentImageName))
 				}
-			} else {
-				log.Printf("Task %s status: FAILED - %s (DB not initialized)", taskDef.ID, fmt.Sprintf("Failed to pull agent image: %s", AgentImageName))
-			}
 				return
 			}
 			defer reader.Close()
@@ -227,14 +226,14 @@ func RunAgentContainer(taskDef *task.Definition) {
 				prURL := strings.TrimSpace(string(prURLBytes))
 				if prURL != "" {
 					// Update task status in database
-				if DB != nil {
-					err := task.UpdateStatus(context.Background(), DB, taskDef.ID, task.StatusCompleted, "Completed. PR URL: "+prURL)
-					if err != nil {
-						log.Printf("Error updating task status: %v", err)
+					if DB != nil {
+						err := task.UpdateStatus(context.Background(), DB, taskDef.ID, task.StatusCompleted, "Completed. PR URL: "+prURL)
+						if err != nil {
+							log.Printf("Error updating task status: %v", err)
+						}
+					} else {
+						log.Printf("Task %s status: COMPLETED - %s (DB not initialized)", taskDef.ID, "Completed. PR URL: "+prURL)
 					}
-				} else {
-					log.Printf("Task %s status: COMPLETED - %s (DB not initialized)", taskDef.ID, "Completed. PR URL: "+prURL)
-				}
 					return
 				}
 			}
