@@ -34,73 +34,87 @@ taskForm.addEventListener('submit', async function(event) {
     event.preventDefault();
     clearPreviousResults();
 
-    const formData = new FormData();
-    const inputType = inputTypeSelect.value;
-
-    if (inputType === 'git') {
-        const gitUrl = document.getElementById('gitUrl').value;
-        if (!gitUrl) {
-            updateStatusDisplay("Please provide a Git URL.", "error");
-            return;
-        }
-        formData.append('git_url', gitUrl);
-    } else {
-        const zipFile = document.getElementById('zipFile').files[0];
-        if (!zipFile) {
-            updateStatusDisplay("Please select a ZIP file.", "error");
-            return;
-        }
-        formData.append('zip_file', zipFile);
-    }
-
-    const taskDescription = document.getElementById('taskDescription').value;
-    const targetFile = document.getElementById('targetFile').value;
-    const githubToken = document.getElementById('githubToken').value;
-
-
-    if (!taskDescription) {
-        updateStatusDisplay("Task description is required.", "error");
-        return;
-    }
-    if (!targetFile) {
-        updateStatusDisplay("Target file path is required.", "error");
-        return;
-    }
-
-    formData.append('task_description', taskDescription);
-    formData.append('target_file', targetFile);
-    if (githubToken) {
-        formData.append('github_token', githubToken);
-    }
-
-
-    statusMessageEl.textContent = "Submitting task...";
-    statusMessageEl.className = '';
+    const submitButton = document.querySelector('#taskForm button[type="submit"]');
+    const originalButtonText = submitButton.textContent;
+    submitButton.innerHTML = '<span class="spinner"></span> Processing...';
+    submitButton.disabled = true;
 
     try {
-        const response = await fetch(`${API_BASE_URL}/task`, {
-            method: 'POST',
-            body: formData // FormData sets Content-Type to multipart/form-data automatically
-        });
+        const formData = new FormData();
+        const inputType = inputTypeSelect.value;
 
-        const data = await response.json();
+        if (inputType === 'git') {
+            const gitUrl = document.getElementById('gitUrl').value;
+            if (!gitUrl) {
+                updateStatusDisplay("Please provide a Git URL.", "error");
+                return;
+            }
+            formData.append('git_url', gitUrl);
+        } else {
+            const zipFile = document.getElementById('zipFile').files[0];
+            if (!zipFile) {
+                updateStatusDisplay("Please select a ZIP file.", "error");
+                return;
+            }
+            formData.append('zip_file', zipFile);
+        }
 
-        if (!response.ok) {
-            updateStatusDisplay(`Error: ${data.error || response.statusText} ${data.details ? '('+data.details+')': ''}`, "error");
+        const taskDescription = document.getElementById('taskDescription').value;
+        const targetFile = document.getElementById('targetFile').value;
+        const githubToken = document.getElementById('githubToken').value;
+
+
+        if (!taskDescription) {
+            updateStatusDisplay("Task description is required.", "error");
+            return;
+        }
+        if (!targetFile) {
+            updateStatusDisplay("Target file path is required.", "error");
             return;
         }
 
-        statusMessageEl.textContent = "Task submitted successfully.";
-        statusMessageEl.className = 'success';
-        taskIdEl.textContent = data.task_id;
-        taskIdDisplay.style.display = 'block';
-        currentStatusDisplay.style.display = 'block';
+        formData.append('task_description', taskDescription);
+        formData.append('target_file', targetFile);
+        if (githubToken) {
+            formData.append('github_token', githubToken);
+        }
 
-        pollTaskStatus(data.task_id);
 
+        statusMessageEl.textContent = "Submitting task...";
+        statusMessageEl.className = '';
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/task`, {
+                method: 'POST',
+                body: formData // FormData sets Content-Type to multipart/form-data automatically
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                updateStatusDisplay(`Error: ${data.error || response.statusText} ${data.details ? '('+data.details+')': ''}`, "error");
+                return;
+            }
+
+            statusMessageEl.textContent = "Task submitted successfully.";
+            statusMessageEl.className = 'success';
+            taskIdEl.textContent = data.task_id;
+            taskIdDisplay.style.display = 'block';
+            currentStatusDisplay.style.display = 'block';
+
+            pollTaskStatus(data.task_id);
+
+        } catch (error) {
+            console.error("Submission error:", error);
+            updateStatusDisplay(`Submission failed: ${error.message}`, "error");
+        }
     } catch (error) {
-        console.error("Submission error:", error);
-        updateStatusDisplay(`Submission failed: ${error.message}`, "error");
+        console.error("General error in form submission:", error);
+        updateStatusDisplay(`An error occurred during form submission: ${error.message}`, "error");
+    } finally {
+        const submitButton = document.querySelector('#taskForm button[type="submit"]');
+        submitButton.textContent = originalButtonText;
+        submitButton.disabled = false;
     }
 });
 

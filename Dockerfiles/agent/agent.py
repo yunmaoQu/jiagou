@@ -4,13 +4,11 @@ import sys
 import difflib
 import logging
 import subprocess
-import shutil
 from pathlib import Path
 from dotenv import load_dotenv
 import json
 import uuid
 from typing import Dict, Any
-import requests
 from pydantic import BaseModel, Field
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -111,8 +109,8 @@ def create_github_pr(repo_path, target_file_rel_path, task_description, original
     logging.info(f"Attempting to create PR for changes in {target_file_rel_path}")
 
     # Configure git user
-    run_command(["git", "config", "--global", "user.email", "codex-agent@example.com"], cwd=repo_path)
-    run_command(["git", "config", "--global", "user.name", "Codex Agent"], cwd=repo_path)
+    run_command(["git", "config", "--local", "user.email", "codex-agent@example.com"], cwd=repo_path)
+    run_command(["git", "config", "--local", "user.name", "Codex Agent"], cwd=repo_path)
 
     # Authenticate gh CLI
     with open("/tmp/gh_token", "w") as f:
@@ -366,17 +364,6 @@ def upload_output_to_cos(output_dir_path: Path, cos_bucket: str, cos_prefix: str
         logging.error(f"COS Upload STDERR: {e.stderr}")
     except FileNotFoundError:
         logging.error(f"COS upload command (e.g., aws or coscmd) not found. Ensure it's in the Docker image PATH.")
-
-
-# In agent.py main() before exiting:
-# ... (rest of agent logic)
-# output_cos_bucket = os.getenv("OUTPUT_COS_BUCKET")
-# output_cos_prefix = os.getenv("OUTPUT_COS_PREFIX") # e.g., "logs/task_id/"
-# if output_cos_bucket and output_cos_prefix:
-#    upload_output_to_cos(OUTPUT_DIR, output_cos_bucket, output_cos_prefix)
-# else:
-#    logging.warning("COS output bucket/prefix not configured. Skipping upload from agent.")
-
 # --- RAG 相关 ─────────────────────────────────
 def get_relevant_code_snippets(task_description, target_file_content, all_code_docs, max_snippets=3):
     logging.info("RAG: 检索相关代码片段...")
@@ -434,11 +421,13 @@ def load_codebase_for_rag(code_dir_path: Path, target_file_rel_path: str):
     return docs
 
 # --- MCP 交互辅助 ─────────────────────────────
-def mcp_step(task_id:str, payload:Dict[str,Any]) -> Dict[str,Any]:
-    url = MCP_SERVER_URL.rstrip("/") + "/step"
-    resp = requests.post(url, json={"task_id":task_id, "payload":payload}, timeout=30)
-    resp.raise_for_status()
-    return resp.json()
+def mcp_step(task_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """使用 fastmcp 客户端实现 MCP 交互"""
+    try:
+        return mcp_client.step(task_id=task_id, payload=payload)
+    except Exception as e:
+        log.error(f"fastmcp 交互失败: {str(e)}")
+        raise  # 保持与原有错误处理逻辑一致
 
 def record_iteration(task_id:str, iteration:int, data:Dict[str,Any]) -> None:
     file = FINE_TUNE_LOG_DIR / f"{task_id}.jsonl"
@@ -446,51 +435,166 @@ def record_iteration(task_id:str, iteration:int, data:Dict[str,Any]) -> None:
         f.write(json.dumps({"iteration":iteration, **data}, ensure_ascii=False) + "\n")
 
 # --- MCP/CoT 主循环 ──────────────────────────
-def run_task(initial_task:Dict[str,Any]) -> None:
+import os, sys, json, subprocess, logging, shlex, difflib, uuid, time
+from pathlib import Path
+from typing import Dict, Any, Tuple
+import requests
+from dotenv import load_dotenv
+
+# --- 新增基础工具函数（来自 mcp.md 设计） ---
+def edit_file(file_path: str,
+              new_content: str | None = None,
+              diff_patch: str | None = None,
+              insert_after_line: int = -1,
+              replace_lines: Tuple[int, int] | None = None) -> Dict[str, Any]:
+    """修改文件的多种模式（整体替换 / diff patch / 插入 / 行替换）"""
+    rel_path = Path(file_path)
+    abs_path = (CODE_DIR / rel_path).resolve()
+    if not str(abs_path).startswith(str(CODE_DIR)):
+        return {"status": "failure", "message": "路径越界被阻止"}
+
+    original_content = abs_path.read_text(encoding="utf-8") if abs_path.exists() else ""
+    modified_content = original_content
+
+    # 互斥模式处理
+    if new_content is not None and diff_patch is None and insert_after_line == -1 and not replace_lines:
+        modified_content = new_content
+    elif diff_patch is not None:
+        if new_content is None:
+            return {"status": "failure", "message": "简化模式下 diff_patch 需同时提供 new_content"}
+        modified_content = new_content
+    elif insert_after_line > -1 and new_content is not None:
+        lines = original_content.splitlines(keepends=True)
+        insert_idx = min(insert_after_line + 1, len(lines))
+        lines.insert(insert_idx, new_content + ("" if new_content.endswith("\n") else "\n"))
+        modified_content = "".join(lines)
+    elif replace_lines and new_content is not None:
+        start, end = replace_lines
+        lines = original_content.splitlines(keepends=True)
+        if not (0 <= start <= end < len(lines)):
+            return {"status": "failure", "message": "replace_lines 范围非法"}
+        lines[start:end + 1] = [new_content + ("" if new_content.endswith("\n") else "\n")]
+        modified_content = "".join(lines)
+    else:
+        return {"status": "failure", "message": "参数组合非法"}
+
+    # 写入并生成 diff
+    abs_path.parent.mkdir(parents=True, exist_ok=True)
+    abs_path.write_text(modified_content, encoding="utf-8")
+    actual_diff = "".join(difflib.unified_diff(
+        original_content.splitlines(keepends=True),
+        modified_content.splitlines(keepends=True),
+        fromfile=f"a/{file_path}",
+        tofile=f"b/{file_path}",
+        lineterm=""
+    ))
+    return {"status": "success", "message": "file edited", "diff": actual_diff}
+
+def read_file(file_path: str, start: int = 0, end: int = 4000) -> Dict[str, Any]:
+    """安全读取文件片段"""
+    abs_path = (CODE_DIR / file_path).resolve()
+    if not abs_path.exists():
+        return {"status": "failure", "message": "文件不存在"}
+    if not str(abs_path).startswith(str(CODE_DIR)):
+        return {"status": "failure", "message": "路径越界被阻止"}
+    
+    text = abs_path.read_text(encoding="utf-8")
+    return {"status": "success", "content": text[start:end]}
+
+def run_command(command: str, workdir: str = ".", timeout: int = CMD_TIMEOUT) -> Dict[str, Any]:
+    """安全执行 shell 命令（带危险命令过滤）"""
+    abs_workdir = (CODE_DIR / workdir).resolve()
+    if not str(abs_workdir).startswith(str(CODE_DIR)):
+        return {"status": "failure", "message": "工作目录越界"}
+
+    dangerous = [";", "&&", "|", ">", "<", "`", "$(", "&", "sudo", "yum", "apt", "pip", "curl", "wget"]
+    if any(tok in command for tok in dangerous):
+        return {"status": "failure", "message": "命令被安全策略阻止"}
+
+    try:
+        proc = subprocess.run(
+            shlex.split(command),
+            cwd=abs_workdir,
+            capture_output=True,
+            timeout=timeout,
+            text=True
+        )
+        stdout = proc.stdout[:CMD_MAX_OUTPUT]
+        stderr = proc.stderr[:CMD_MAX_OUTPUT]
+        return {
+            "status": "success" if proc.returncode == 0 else "failure",
+            "returncode": proc.returncode,
+            "stdout": stdout,
+            "stderr": stderr
+        }
+    except subprocess.TimeoutExpired:
+        return {"status": "failure", "message": f"执行超时 {timeout}s"}
+
+TOOLS = {
+    "edit_file": edit_file,
+    "read_file": read_file,
+    "run_command": run_command,
+}
+
+# --- 重构主流程为 MCP 交互循环 ---
+def run_task(initial_task: Dict[str, Any]) -> None:
     task_id = initial_task.get("task_id") or str(uuid.uuid4())
-    payload  = {"event":"start", "task":initial_task}
-    for iteration in range(1, MAX_MCP_ITERATIONS+1):
+    payload = {"event": "start", "task": initial_task}
+
+    for iteration in range(1, MAX_MCP_ITERATIONS + 1):
         log.info(f"[{task_id}] 第 {iteration} 轮")
+
+        # 1. 向 MCP 请求下一步操作
         mcp_reply = mcp_step(task_id, payload)
         record_iteration(task_id, iteration, {
-            "agent_input":payload,
-            "mcp_reply":mcp_reply
+            "agent_input": payload,
+            "mcp_reply": mcp_reply
         })
+
         if mcp_reply.get("event") == "finish":
-            log.info(f"[{task_id}] 完成：{mcp_reply.get('summary','')}")
+            log.info(f"[{task_id}] 完成：{mcp_reply.get('summary', '')}")
             break
+
         if mcp_reply.get("event") != "tool_call":
             log.warning(f"[{task_id}] 未知事件 {mcp_reply.get('event')}，终止")
             break
+
+        # 2. 执行 MCP 指定的工具
         tool_name = mcp_reply["name"]
         arguments = mcp_reply.get("arguments", {})
-        if tool_name not in AVAILABLE_TOOLS:
+        if tool_name not in TOOLS:
             payload = {
-                "event":"tool_result",
-                "name":tool_name,
-                "result":{"status":"failure","message":"未知工具"}
+                "event": "tool_result",
+                "name": tool_name,
+                "result": {"status": "failure", "message": "未知工具"}
             }
             continue
+
         try:
-            result = AVAILABLE_TOOLS[tool_name](**arguments)
+            result = TOOLS[tool_name](**arguments)
         except Exception as exc:
             log.exception(f"工具 {tool_name} 崩溃")
-            result = {"status":"failure","message":str(exc)}
-        payload = {
-            "event":"tool_result",
-            "name":tool_name,
-            "arguments":arguments,
-            "result":result
-        }
-    else:
-        mcp_step(task_id, {"event":"agent_abort","reason":"max_iterations"})
+            result = {"status": "failure", "message": str(exc)}
 
-# --- CLI 入口 ────────────────────────────────
-def load_task_from_cli() -> Dict[str,Any]:
+        # 3. 回传工具执行结果
+        payload = {
+            "event": "tool_result",
+            "name": tool_name,
+            "arguments": arguments,
+            "result": result
+        }
+
+    else:
+        mcp_step(task_id, {"event": "agent_abort", "reason": "max_iterations"})
+
+# --- 调整 CLI 入口 ---
+def load_task_from_cli() -> Dict[str, Any]:
+    """支持从 STDIN 或 --task_file 读取 JSON 任务"""
     import argparse
     p = argparse.ArgumentParser()
-    p.add_argument("--task_file", help="写一个包含任务 JSON 的文件路径")
+    p.add_argument("--task_file", help="包含任务 JSON 的文件路径")
     args = p.parse_args()
+
     if args.task_file:
         return json.loads(Path(args.task_file).read_text())
     else:

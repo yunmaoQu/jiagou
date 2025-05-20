@@ -9,7 +9,7 @@ import (
 
 	"github.com/yunmaoQu/codex-sys/internal/platform/kafka"
 	"github.com/yunmaoQu/codex-sys/internal/platform/objectstorage"
-	"github.com/yunmaoQu/codex-sys/internal/task" // Task domain logic
+	"github.com/yunmaoQu/codex-sys/internal/task" 
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -133,8 +133,8 @@ func (api *TaskAPI) HandleGetLogFile(c *gin.Context) {
 	taskID := c.Param("task_id")
 	filename := c.Param("filename")
 
-	// 这里假设日志文件存储在 COS，可以生成预签名URL返回，或直接代理下载
-	// 示例：生成 COS 预签名URL
+	// 日志文件存储在 COS，可以生成预签名URL返回，或直接代理下载
+	// 生成 COS 预签名URL
 	s3Key := fmt.Sprintf("logs/%s/%s", taskID, filename)
 	logBucket := "codex-logs" // 与 config.yaml 保持一致，或通过依赖注入传入
 	url, err := api.cosClient.GetPresignedURL(c.Request.Context(), logBucket, s3Key, time.Minute*15)
