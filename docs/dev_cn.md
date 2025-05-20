@@ -155,7 +155,7 @@ def main():
 
     prompt = f"Task: {task}\n\nCode:\n{code}"
     response = openai.ChatCompletion.create(
-        model="gpt-4",
+        model="gpt-o3-high",
         messages=[{"role": "user", "content": prompt}]
     )
 
@@ -319,42 +319,42 @@ graph LR
     *   如果任务完成，API 服务返回指向 `COSLogsBucket` 中结果文件的**预签名 URL** 或通过 API 代理下载这些文件。
 
 ---
-### 2. worker
-This would be a separate Go application, built into a Docker image, and deployed on Kubernetes.
+### 2. worker服务
+这将是一个独立的Go应用程序，构建为Docker镜像并部署在Kubernetes上。
 
 ---
 
 ### 3. `agent/` (Agent - Python)
 
-No major changes are strictly *required* in the agent for this backend refactor, as long as:
-*   It still receives code in `/app/code`.
-*   It can still write logs/outputs to `/app/output`.
-*   Environment variables (like `OPENAI_API_KEY`, `GITHUB_TOKEN`) are correctly passed.
+只要满足以下条件，agent在此次后端重构中不需要做重大修改：
+*   它仍然在`/app/code`接收代码
+*   它仍然可以将日志/输出写入`/app/output`
+*   环境变量(如`OPENAI_API_KEY`、`GITHUB_TOKEN`)被正确传递
 
-**However, to integrate with COS for output uploading from the Agent Pod (if not using a sidecar):**
+**但如果要让Agent Pod自行处理COS输出上传(不使用sidecar容器)：**
 
-The Agent Pod's main container (or a post-stop lifecycle hook) would need:
-1.  COS credentials (e.g., via K8s secrets mounted as env vars or files, or using Workload Identity/IRSA).
-2.  A COS SDK or CLI tool (like `aws s3 sync` or `coscmd`) installed in the agent image.
-3.  Logic at the end of `agent.py` (or in a wrapper script) to upload the contents of `/app/output` to the designated `OutputCOSPath` (which would need to be passed as an env var to the agent).
+Agent Pod的主容器(或停止后的生命周期钩子)需要：
+1.  COS凭证(例如通过K8s secrets挂载为环境变量或文件，或使用Workload Identity/IRSA)
+2.  安装COS SDK或CLI工具(如`aws s3 sync`或`coscmd`)
+3.  在`agent.py`末尾(或包装脚本中)添加逻辑，将`/app/output`内容上传到指定的`OutputCOSPath`(需要通过环境变量传递给agent)
 
-**Example snippet for agent.py to upload output (conceptual):**
+**agent.py中上传输出的代码：**
 
-This upload logic is often better handled by a K8s sidecar container or a post-run script defined in the K8s Job spec to keep the agent focused on its core task.
+这种上传逻辑通常更适合由K8s sidecar容器或在K8s Job定义中的后运行脚本来处理，以保持agent专注于其核心任务。
 
 ---
 
-### Deployment Considerations:
+### 部署注意事项：
 
-*   **Configuration:** Each service (API, Worker) will need its own configuration management (env vars, config files, K8s ConfigMaps/Secrets).
-*   **Docker Images:** You'll build separate Docker images for the API service, the Worker service, and the Agent.
-*   **Kubernetes Manifests:** You'll need K8s `Deployment` YAMLs for the API and Worker services, `Service` YAMLs to expose them, and a way to define the Agent `Job` (perhaps the Worker generates the Job spec dynamically).
-*   **Database Setup:** MySQL schema needs to be applied. Redis setup.
-*   **Kafka Setup:** Topics (`codex-tasks`, `codex-results`) need to be created.
-*   **COS Buckets:** `your-code-bucket` and `your-logs-bucket` need to be created with appropriate permissions.
-*   **IAM/Permissions:**
-    *   API service might need permission to write to COS (for initial ZIP uploads).
-    *   Worker service needs permission to read/write to COS, interact with Kubernetes API (create Jobs, get Job status), and read/write to MySQL/Redis.
-    *   Agent Pods (if they handle their own COS interactions via CSI or direct SDK calls) need COS read (for code) and write (for logs) permissions. This is often managed via K8s Service Accounts + IRSA (AWS), Workload Identity (GCP/Azure), or OIDC federation with Tencent Cloud CAM.
+*   **配置管理：** 每个服务(API、Worker)都需要自己的配置管理(环境变量、配置文件、K8s ConfigMaps/Secrets)
+*   **Docker镜像：** 需要为API服务、Worker服务和Agent分别构建Docker镜像
+*   **Kubernetes清单：** 需要为API和Worker服务编写K8s `Deployment` YAML，`Service` YAML来暴露它们，以及定义Agent `Job`的方式(可能由Worker动态生成Job规范)
+*   **数据库设置：** 需要应用MySQL schema，设置Redis
+*   **Kafka设置：** 需要创建主题(`codex-tasks`、`codex-results`)
+*   **COS存储桶：** 需要创建`your-code-bucket`和`your-logs-bucket`并设置适当权限
+*   **IAM/权限管理：**
+    *   API服务可能需要写入COS的权限(用于初始ZIP上传)
+    *   Worker服务需要读写COS、与Kubernetes API交互(创建Job、获取Job状态)以及读写MySQL/Redis的权限
+    *   Agent Pod(如果通过CSI或直接SDK调用处理自己的COS交互)需要COS读取(代码)和写入(日志)权限。
 
 

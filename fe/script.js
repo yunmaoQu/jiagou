@@ -119,6 +119,13 @@ taskForm.addEventListener('submit', async function(event) {
 });
 
 function updateStatusDisplay(message, type = "info") {
+    const statusEl = document.getElementById('status');
+    statusEl.innerHTML = `
+        <div class="codex-status ${type}">
+            <div class="codex-spinner ${type === 'info' ? 'visible' : ''}"></div>
+            <span>${message}</span>
+        </div>
+    `;
     statusMessageEl.textContent = message;
     statusMessageEl.className = type; // 'info', 'success', 'error'
     if (type === "error") {
@@ -130,10 +137,15 @@ function updateStatusDisplay(message, type = "info") {
 
 
 function pollTaskStatus(taskId) {
-    if (pollingInterval) {
-        clearInterval(pollingInterval);
-    }
-
+    if (pollingInterval) clearInterval(pollingInterval);
+    
+    // Add Codex-style typing animation
+    statusEl.innerHTML = `
+        <div class="codex-status info">
+            <div class="codex-spinner visible"></div>
+            <span>Processing your request...</span>
+        </div>
+    `;
     pollingInterval = setInterval(async () => {
         try {
             const response = await fetch(`${API_BASE_URL}/task/${taskId}/status`);

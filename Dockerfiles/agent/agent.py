@@ -1,17 +1,18 @@
-import openai
-import os
-import sys
+import ast
 import difflib
-import logging
-import subprocess
-from pathlib import Path
-from dotenv import load_dotenv
 import json
+import logging
+import os
+import subprocess
+import sys
+import time
 import uuid
-from typing import Dict, Any
-from pydantic import BaseModel, Field
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+from pathlib import Path
+from typing import Dict, Any, TypedDict, Optional
+
+import openai
+from dotenv import load_dotenv
+from langgraph.graph import Graph
 
 # --- Configuration ---
 # Load .env file from /app (if it exists, for local testing) or rely on Docker env vars
@@ -19,21 +20,25 @@ dotenv_path = Path('/app/.env')
 if dotenv_path.exists():
     load_dotenv(dotenv_path=dotenv_path)
 
+# Environment variables
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN") # Can be overridden by user via API
-MODEL_NAME = os.getenv("OPENAI_MODEL", "gpt-4o") #
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+MODEL_NAME = os.getenv("OPENAI_MODEL", "gpt-o3-high")
 
+# Path configuration
 CODE_DIR = Path("/app/code").resolve()
 OUTPUT_DIR = Path("/app/output").resolve()
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 FINE_TUNE_LOG_DIR = OUTPUT_DIR / "finetuning_data"
 FINE_TUNE_LOG_DIR.mkdir(exist_ok=True)
+
+# API and execution configuration
 MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://localhost:8000")
 MAX_MCP_ITERATIONS = int(os.getenv("MAX_MCP_ITERATIONS", "7"))
 CMD_TIMEOUT = int(os.getenv("CMD_TIMEOUT", "20"))
 CMD_MAX_OUTPUT = int(os.getenv("CMD_MAX_OUTPUT", "20000"))
 
-# --- Logging ---
+# --- Logging setup ---
 log_file_path = OUTPUT_DIR / "agent.log"
 logging.basicConfig(
     level=logging.INFO,
@@ -46,46 +51,101 @@ logging.basicConfig(
 log = logging.getLogger("codex-agent")
 
 # --- Helper Functions ---
+
 def run_command(command, cwd=None, env=None):
-    logging.info(f"Running command: {' '.join(command)} in {cwd or '.'}")
+    """Execute a subprocess command with logging and error handling.
+    
+    Args:
+        command: List of command arguments or command string
+        cwd: Working directory for the command
+        env: Environment variables dictionary
+        
+    Returns:
+        CompletedProcess object or None if exception occurred
+    """
+    cmd_str = ' '.join(command) if isinstance(command, list) else command
+    logging.info(f"Running command: {cmd_str} in {cwd or '.'}")
+    
     try:
+        # Handle command as list or string
+        cmd_args = command if isinstance(command, list) else shlex.split(command)
+        
+        # Check for dangerous commands if it's a string
+        if not isinstance(command, list):
+            dangerous = [";", "&&", "|", ">", "<", "`", "$(", "&", "sudo", "yum", "apt", "pip", "curl", "wget"]
+            if any(tok in command for tok in dangerous):
+                logging.error("Command blocked by security policy")
+                return None
+        
         process = subprocess.run(
-            command,
+            cmd_args,
             capture_output=True,
             text=True,
-            check=False, # Don't raise exception on non-zero exit, we'll check returncode
+            check=False,  # Don't raise exception on non-zero exit, we'll check returncode
             cwd=cwd,
-            env=env
+            env=env,
+            timeout=CMD_TIMEOUT
         )
-        if process.stdout:
-            logging.info(f"Stdout: {process.stdout.strip()}")
-        if process.stderr:
-            logging.error(f"Stderr: {process.stderr.strip()}")
+        
+        # Limit output size
+        stdout = process.stdout[:CMD_MAX_OUTPUT] if process.stdout else ""
+        stderr = process.stderr[:CMD_MAX_OUTPUT] if process.stderr else ""
+        
+        if stdout:
+            logging.info(f"Stdout: {stdout.strip()}")
+        if stderr:
+            logging.error(f"Stderr: {stderr.strip()}")
         if process.returncode != 0:
             logging.error(f"Command failed with exit code {process.returncode}")
+            
         return process
+    except subprocess.TimeoutExpired:
+        logging.error(f"Command timed out after {CMD_TIMEOUT}s: {cmd_str}")
+        return None
     except Exception as e:
-        logging.error(f"Exception running command {' '.join(command)}: {e}")
+        logging.error(f"Exception running command {cmd_str}: {e}")
         return None
 
 
-def get_llm_response(prompt_text):
+def get_llm_response(prompt_text, max_retries=3):
+    """Send a prompt to the OpenAI API and get the response with retry logic.
+    
+    Args:
+        prompt_text: The text prompt to send to the API
+        max_retries: Maximum number of retry attempts
+        
+    Returns:
+        Response content or None if error occurred after all retries
+    """
     logging.info("Sending request to OpenAI API...")
-    try:
-        client = openai.OpenAI(api_key=OPENAI_API_KEY)
-        response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[{"role": "user", "content": prompt_text}]
-        )
-        content = response.choices[0].message.content
-        # Strip markdown code block delimiters if present
-        if content.startswith("```") and content.endswith("```"):
-            content = "\n".join(content.splitlines()[1:-1])
-        logging.info("Received response from OpenAI API.")
-        return content
-    except Exception as e:
-        logging.error(f"Error calling OpenAI API: {e}")
-        return None
+    
+    for attempt in range(max_retries):
+        try:
+            client = openai.OpenAI(api_key=OPENAI_API_KEY)
+            response = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[{"role": "user", "content": prompt_text}]
+            )
+            content = response.choices[0].message.content
+            
+            # Strip markdown code block delimiters if present
+            if content.startswith("```python") and content.endswith("```"):
+                content = "\n".join(content.splitlines()[1:-1])
+            elif content.startswith("```") and content.endswith("```"):
+                content = "\n".join(content.splitlines()[1:-1])
+                
+            logging.info("Received response from OpenAI API.")
+            return content
+        except Exception as e:
+            logging.error(f"Error calling OpenAI API (attempt {attempt+1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                # Exponential backoff
+                backoff = 2 ** attempt
+                logging.info(f"Retrying in {backoff} seconds...")
+                time.sleep(backoff)
+            else:
+                logging.error("All retry attempts failed.")
+                return None
 
 def create_github_pr(repo_path, target_file_rel_path, task_description, original_branch="main"):
     if not GITHUB_TOKEN:
@@ -203,407 +263,216 @@ def create_github_pr(repo_path, target_file_rel_path, task_description, original
             f.write(pr_url)
     return True
 
-# --- Main Execution ---
-def main():
-    logging.info("Agent script started.")
-    if len(sys.argv) < 4:
-        logging.error("Usage: python agent.py <task_description> <target_file_relative_path> <is_github_repo_str>")
-        sys.exit(1)
+# --- Workflow Functions ---
 
-    task_description = sys.argv[1]
-    target_file_rel_path = sys.argv[2] # e.g. "src/main.py"
-    is_github_repo = sys.argv[3].lower() == 'true'
-    
-    logging.info(f"Task Description: {task_description}")
-    logging.info(f"Target File: {target_file_rel_path}")
-    logging.info(f"Is GitHub Repo: {is_github_repo}")
-    logging.info(f"OpenAI Model: {MODEL_NAME}")
-    logging.info(f"GitHub Token Provided: {'Yes' if GITHUB_TOKEN else 'No'}")
+# Define state type
+class AgentState(TypedDict):
+    task_description: str
+    target_file_rel_path: str 
+    is_github_repo: bool
+    original_code: str
+    modified_code: str
+    diff_output: str
+    pr_created: bool
+    modification_failed: bool
 
-    target_file_abs_path = CODE_DIR / target_file_rel_path
-    if not target_file_abs_path.is_file():
-        logging.error(f"Target file not found: {target_file_abs_path}")
-        sys.exit(1)
-
-    # Run setup.sh if it exists in the user's code
-    setup_script_path = CODE_DIR / "setup.sh"
-    if setup_script_path.exists() and setup_script_path.is_file():
-        logging.info(f"Found setup.sh at {setup_script_path}, executing...")
-        # Make it executable
-        run_command(["chmod", "+x", str(setup_script_path)], cwd=CODE_DIR)
-        # Execute it, redirecting its output to a log file
-        setup_log_path = OUTPUT_DIR / "setup.log"
-        with open(setup_log_path, "wb") as slf: # binary mode for subprocess output
-            setup_proc = subprocess.Popen(
-                [str(setup_script_path)], 
-                cwd=CODE_DIR, 
-                stdout=slf, 
-                stderr=subprocess.STDOUT
-            )
-            setup_proc.communicate() # wait for it to finish
-        if setup_proc.returncode == 0:
-            logging.info("setup.sh executed successfully.")
-        else:
-            logging.warning(f"setup.sh exited with code {setup_proc.returncode}. Check setup.log.")
-    else:
-        logging.info("No setup.sh found in the repository root, or it's not a file.")
-
-
+# --- Node Functions ---
+async def load_code_node(state: AgentState) -> AgentState:
+    """Load code from target file"""
+    target_file_abs_path = CODE_DIR / state["target_file_rel_path"]
     with open(target_file_abs_path, "r", encoding='utf-8') as f:
-        original_code = f.read()
+        state["original_code"] = f.read()
+    return state
 
-    # Read AGENTS.MD if it exists in the user's code
-    agents_md_path = CODE_DIR / "AGENTS.md"
-    agent_custom_instructions = ""
-    if agents_md_path.exists() and agents_md_path.is_file():
-        logging.info(f"Found AGENTS.MD at {agents_md_path}, loading custom instructions.")
-        with open(agents_md_path, "r", encoding='utf-8') as f:
-            agent_custom_instructions = f.read()
-    else:
-        logging.info("No AGENTS.MD found in repository root, using default prompt structure.")
-        # Fallback to example AGENTS.md content if not provided by user
-        example_agents_md_path = Path(__file__).parent / "AGENTS.md.example"
-        if example_agents_md_path.exists():
-            with open(example_agents_md_path, "r", encoding='utf-8') as f:
-                agent_custom_instructions = f.read()
+async def generate_code_node(state: AgentState) -> AgentState:
+    """Generate modified code using LLM with syntax validation"""
+    # Determine language from file extension
+    language = get_language_from_file(state["target_file_rel_path"])
+    language_name = language.capitalize()
+    
+    # Create a language-specific prompt
+    prompt = f"""Modify the following {language_name} code according to the task requirements: {state['task_description']}
 
-
-    prompt = f"""{agent_custom_instructions}
-
-User's Task Description:
-{task_description}
-
-Target File Path: {target_file_rel_path}
-
-Current Code from '{target_file_rel_path}':
-```
-{original_code}
+Original code:
+```{language}
+{state['original_code']}
 ```
 
-Please provide ONLY the complete, modified code for the file '{target_file_rel_path}'.
-Do not include any explanations or conversational text outside the code.
-"""
-
-    (OUTPUT_DIR / "prompt.txt").write_text(prompt, encoding='utf-8')
-    logging.info(f"Prompt saved to {OUTPUT_DIR / 'prompt.txt'}")
-
-    if not OPENAI_API_KEY:
-        logging.error("OPENAI_API_KEY is not set. Cannot proceed with LLM call.")
-        sys.exit(1)
-
+Only return the complete modified code, no explanation needed. Ensure the code has valid {language_name} syntax."""
+    
+    # Get modified code from LLM
     modified_code = get_llm_response(prompt)
-
-    if modified_code:
-        (OUTPUT_DIR / "llm_response.txt").write_text(modified_code, encoding='utf-8')
-        logging.info(f"LLM response saved to {OUTPUT_DIR / 'llm_response.txt'}")
-
-        # Generate diff
-        diff = difflib.unified_diff(
-            original_code.splitlines(keepends=True),
-            modified_code.splitlines(keepends=True),
-            fromfile=f"a/{target_file_rel_path}",
-            tofile=f"b/{target_file_rel_path}",
-            lineterm=""
-        )
-        diff_output = "".join(diff)
-        (OUTPUT_DIR / "diff.patch").write_text(diff_output, encoding='utf-8')
-        logging.info(f"Diff patch saved to {OUTPUT_DIR / 'diff.patch'}")
-
-        # Overwrite the original file with the modified code
-        # This is important for the PR creation step
-        with open(target_file_abs_path, "w", encoding='utf-8') as f:
-            f.write(modified_code)
-        logging.info(f"Original file {target_file_abs_path} updated with modified code.")
-
-        # Attempt to create PR if it's a GitHub repo and token is available
-        if is_github_repo and GITHUB_TOKEN:
-            # The CODE_DIR is the root of the git repo
-            # The target_file_abs_path is where the change was made
-            # We need the relative path of target_file_abs_path from CODE_DIR
-            # which is target_file_rel_path
-            create_github_pr(CODE_DIR, target_file_rel_path, task_description)
-        else:
-            logging.info("Skipping PR creation (not a GitHub repo or no GITHUB_TOKEN).")
-
-    else:
-        logging.error("Failed to get a response from LLM or response was empty.")
-        (OUTPUT_DIR / "error.txt").write_text("Failed to get LLM response.", encoding='utf-8')
-
-    logging.info("Agent script finished.")
-
-def upload_output_to_cos(output_dir_path: Path, cos_bucket: str, cos_prefix: str):
-    logging.info(f"Attempting to upload contents of {output_dir_path} to COS s3://{cos_bucket}/{cos_prefix}")
-    # This requires awscli or coscmd to be in the container and configured
-    # For awscli (works with S3 and MinIO, and often Tencent COS with S3 compatibility)
-    # Ensure AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION are set as env vars
-    # or the pod has an IAM role attached (IRSA/Workload Identity).
-    # For Tencent COS native: ensure coscmd is installed and configured.
-
-    # Example using aws s3 sync:
-    # target_s3_path = f"s3://{cos_bucket}/{cos_prefix}"
-    # command = ["aws", "s3", "sync", str(output_dir_path), target_s3_path, "--delete"]
     
-    # Example using coscmd (Tencent Cloud):
-    # Needs prior `coscmd config -a key -s secret -b default_bucket -r region` or env vars
-    # Or pass credentials directly if supported by coscmd version
-    target_cos_path = f"cos://{cos_bucket}/{cos_prefix}" # coscmd uses cos:// schema
-    # coscmd upload -r /local/path/ cos_path/
-    command = ["coscmd", "upload", "-r", str(output_dir_path) + "/", target_cos_path]
+    # Use MCP to validate syntax
+    if not validate_syntax(modified_code, state["target_file_rel_path"]):
+        # First retry - explicitly ask for fixed syntax
+        retry_prompt = f"""The previous modification has syntax errors. Please fix and provide a valid {language_name} implementation.
 
+Task: {state['task_description']}
 
-    logging.info(f"Executing COS upload command: {' '.join(command)}")
-    try:
-        process = subprocess.run(command, capture_output=True, text=True, check=True)
-        logging.info(f"COS Upload STDOUT: {process.stdout}")
-        if process.stderr:
-            logging.warning(f"COS Upload STDERR: {process.stderr}")
-        logging.info("Output successfully uploaded to COS.")
-    except subprocess.CalledProcessError as e:
-        logging.error(f"COS Upload failed. Exit code: {e.returncode}")
-        logging.error(f"COS Upload STDOUT: {e.stdout}")
-        logging.error(f"COS Upload STDERR: {e.stderr}")
-    except FileNotFoundError:
-        logging.error(f"COS upload command (e.g., aws or coscmd) not found. Ensure it's in the Docker image PATH.")
-# --- RAG 相关 ─────────────────────────────────
-def get_relevant_code_snippets(task_description, target_file_content, all_code_docs, max_snippets=3):
-    logging.info("RAG: 检索相关代码片段...")
-    if not all_code_docs:
-        return ""
-    query_text = f"{task_description}\n\nContext from target file:\n{target_file_content[:1000]}"
-    try:
-        vectorizer = TfidfVectorizer(stop_words='english', max_df=0.95, min_df=2, ngram_range=(1,2))
-        tfidf_matrix = vectorizer.fit_transform(all_code_docs + [query_text])
-        query_vector = tfidf_matrix[-1]
-        doc_vectors = tfidf_matrix[:-1]
-        similarities = cosine_similarity(query_vector, doc_vectors).flatten()
-        relevant_indices = similarities.argsort()[-max_snippets*2:][::-1]
-        retrieved_snippets_text = []
-        added_content = set()
-        for i in relevant_indices:
-            if similarities[i] > 0.05:
-                snippet_content = all_code_docs[i][:300]
-                first_few_words = " ".join(snippet_content.split()[:10])
-                if first_few_words not in added_content:
-                    retrieved_snippets_text.append(f"--- Relevant Snippet {len(retrieved_snippets_text)+1} (Similarity: {similarities[i]:.2f}) ---\n{snippet_content}\n")
-                    added_content.add(first_few_words)
-                if len(retrieved_snippets_text) >= max_snippets:
-                    break
-        if retrieved_snippets_text:
-            return "\n".join(retrieved_snippets_text)
-        else:
-            return ""
-    except Exception as e:
-        logging.error(f"RAG 错误: {e}")
-        return ""
+Original code:
+```{language}
+{state['original_code']}
+```
 
-def load_codebase_for_rag(code_dir_path: Path, target_file_rel_path: str):
-    docs = []
-    relevant_extensions = ['.py', '.go', '.js', '.ts', '.java', '.c', '.cpp', '.h', '.cs', '.rb', '.php', '.swift', '.kt', '.rs', '.md', '.txt']
-    CHUNK_SIZE_LINES = 30 
-    OVERLAP_LINES = 5
-    for item in code_dir_path.rglob('*'):
-        if item.is_file() and item.suffix.lower() in relevant_extensions:
-            try:
-                with open(item, 'r', encoding='utf-8', errors='ignore') as f:
-                    content = f.read()
-                    if len(content) > 100:
-                        lines = content.splitlines()
-                        if len(lines) > CHUNK_SIZE_LINES * 1.5 :
-                            for i in range(0, len(lines), CHUNK_SIZE_LINES - OVERLAP_LINES):
-                                chunk_lines = lines[i : i + CHUNK_SIZE_LINES]
-                                if chunk_lines:
-                                    chunk_content = "\n".join(chunk_lines)
-                                    docs.append(f"File: {item.relative_to(code_dir_path)}\n```\n{chunk_content}\n```")
-                        else:
-                             docs.append(f"File: {item.relative_to(code_dir_path)}\n```\n{content}\n```")
-            except Exception as e:
-                logging.warning(f"RAG: 读取文件失败 {item}: {e}")
-    return docs
+Your previous attempt (with syntax errors):
+```{language}
+{modified_code}
+```
 
-# --- MCP 交互辅助 ─────────────────────────────
-def mcp_step(task_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    """使用 fastmcp 客户端实现 MCP 交互"""
-    try:
-        return mcp_client.step(task_id=task_id, payload=payload)
-    except Exception as e:
-        log.error(f"fastmcp 交互失败: {str(e)}")
-        raise  # 保持与原有错误处理逻辑一致
-
-def record_iteration(task_id:str, iteration:int, data:Dict[str,Any]) -> None:
-    file = FINE_TUNE_LOG_DIR / f"{task_id}.jsonl"
-    with file.open("a", encoding="utf-8") as f:
-        f.write(json.dumps({"iteration":iteration, **data}, ensure_ascii=False) + "\n")
-
-# --- MCP/CoT 主循环 ──────────────────────────
-import os, sys, json, subprocess, logging, shlex, difflib, uuid, time
-from pathlib import Path
-from typing import Dict, Any, Tuple
-import requests
-from dotenv import load_dotenv
-
-# --- 新增基础工具函数（来自 mcp.md 设计） ---
-def edit_file(file_path: str,
-              new_content: str | None = None,
-              diff_patch: str | None = None,
-              insert_after_line: int = -1,
-              replace_lines: Tuple[int, int] | None = None) -> Dict[str, Any]:
-    """修改文件的多种模式（整体替换 / diff patch / 插入 / 行替换）"""
-    rel_path = Path(file_path)
-    abs_path = (CODE_DIR / rel_path).resolve()
-    if not str(abs_path).startswith(str(CODE_DIR)):
-        return {"status": "failure", "message": "路径越界被阻止"}
-
-    original_content = abs_path.read_text(encoding="utf-8") if abs_path.exists() else ""
-    modified_content = original_content
-
-    # 互斥模式处理
-    if new_content is not None and diff_patch is None and insert_after_line == -1 and not replace_lines:
-        modified_content = new_content
-    elif diff_patch is not None:
-        if new_content is None:
-            return {"status": "failure", "message": "简化模式下 diff_patch 需同时提供 new_content"}
-        modified_content = new_content
-    elif insert_after_line > -1 and new_content is not None:
-        lines = original_content.splitlines(keepends=True)
-        insert_idx = min(insert_after_line + 1, len(lines))
-        lines.insert(insert_idx, new_content + ("" if new_content.endswith("\n") else "\n"))
-        modified_content = "".join(lines)
-    elif replace_lines and new_content is not None:
-        start, end = replace_lines
-        lines = original_content.splitlines(keepends=True)
-        if not (0 <= start <= end < len(lines)):
-            return {"status": "failure", "message": "replace_lines 范围非法"}
-        lines[start:end + 1] = [new_content + ("" if new_content.endswith("\n") else "\n")]
-        modified_content = "".join(lines)
-    else:
-        return {"status": "failure", "message": "参数组合非法"}
-
-    # 写入并生成 diff
-    abs_path.parent.mkdir(parents=True, exist_ok=True)
-    abs_path.write_text(modified_content, encoding="utf-8")
-    actual_diff = "".join(difflib.unified_diff(
-        original_content.splitlines(keepends=True),
-        modified_content.splitlines(keepends=True),
-        fromfile=f"a/{file_path}",
-        tofile=f"b/{file_path}",
-        lineterm=""
-    ))
-    return {"status": "success", "message": "file edited", "diff": actual_diff}
-
-def read_file(file_path: str, start: int = 0, end: int = 4000) -> Dict[str, Any]:
-    """安全读取文件片段"""
-    abs_path = (CODE_DIR / file_path).resolve()
-    if not abs_path.exists():
-        return {"status": "failure", "message": "文件不存在"}
-    if not str(abs_path).startswith(str(CODE_DIR)):
-        return {"status": "failure", "message": "路径越界被阻止"}
-    
-    text = abs_path.read_text(encoding="utf-8")
-    return {"status": "success", "content": text[start:end]}
-
-def run_command(command: str, workdir: str = ".", timeout: int = CMD_TIMEOUT) -> Dict[str, Any]:
-    """安全执行 shell 命令（带危险命令过滤）"""
-    abs_workdir = (CODE_DIR / workdir).resolve()
-    if not str(abs_workdir).startswith(str(CODE_DIR)):
-        return {"status": "failure", "message": "工作目录越界"}
-
-    dangerous = [";", "&&", "|", ">", "<", "`", "$(", "&", "sudo", "yum", "apt", "pip", "curl", "wget"]
-    if any(tok in command for tok in dangerous):
-        return {"status": "failure", "message": "命令被安全策略阻止"}
-
-    try:
-        proc = subprocess.run(
-            shlex.split(command),
-            cwd=abs_workdir,
-            capture_output=True,
-            timeout=timeout,
-            text=True
-        )
-        stdout = proc.stdout[:CMD_MAX_OUTPUT]
-        stderr = proc.stderr[:CMD_MAX_OUTPUT]
-        return {
-            "status": "success" if proc.returncode == 0 else "failure",
-            "returncode": proc.returncode,
-            "stdout": stdout,
-            "stderr": stderr
-        }
-    except subprocess.TimeoutExpired:
-        return {"status": "failure", "message": f"执行超时 {timeout}s"}
-
-TOOLS = {
-    "edit_file": edit_file,
-    "read_file": read_file,
-    "run_command": run_command,
-}
-
-# --- 重构主流程为 MCP 交互循环 ---
-def run_task(initial_task: Dict[str, Any]) -> None:
-    task_id = initial_task.get("task_id") or str(uuid.uuid4())
-    payload = {"event": "start", "task": initial_task}
-
-    for iteration in range(1, MAX_MCP_ITERATIONS + 1):
-        log.info(f"[{task_id}] 第 {iteration} 轮")
-
-        # 1. 向 MCP 请求下一步操作
-        mcp_reply = mcp_step(task_id, payload)
-        record_iteration(task_id, iteration, {
-            "agent_input": payload,
-            "mcp_reply": mcp_reply
-        })
-
-        if mcp_reply.get("event") == "finish":
-            log.info(f"[{task_id}] 完成：{mcp_reply.get('summary', '')}")
-            break
-
-        if mcp_reply.get("event") != "tool_call":
-            log.warning(f"[{task_id}] 未知事件 {mcp_reply.get('event')}，终止")
-            break
-
-        # 2. 执行 MCP 指定的工具
-        tool_name = mcp_reply["name"]
-        arguments = mcp_reply.get("arguments", {})
-        if tool_name not in TOOLS:
-            payload = {
-                "event": "tool_result",
-                "name": tool_name,
-                "result": {"status": "failure", "message": "未知工具"}
+Provide corrected code with valid {language_name} syntax:"""
+        
+        log.warning(f"First attempt had {language_name} syntax errors. Retrying with explicit syntax correction prompt.")
+        modified_code = get_llm_response(retry_prompt)
+        
+        # Check syntax again
+        if not validate_syntax(modified_code, state["target_file_rel_path"]):
+            # Try MCP-based correction
+            task_id = str(uuid.uuid4())
+            mcp_payload = {
+                "event": "syntax_fix",
+                "language": language,
+                "code": modified_code,
+                "task": state["task_description"]
             }
-            continue
+            
+            log.info(f"Requesting MCP syntax correction for {language_name} code")
+            mcp_response = mcp_step(task_id, mcp_payload)
+            
+            if mcp_response.get("event") == "fixed_code" and mcp_response.get("code"):
+                modified_code = mcp_response["code"]
+                if validate_syntax(modified_code, state["target_file_rel_path"]):
+                    log.info(f"MCP successfully fixed {language_name} syntax")
+                    state["modified_code"] = modified_code
+                    state["modification_failed"] = False
+                    return state
+            
+            # Final fallback - keep original code
+            log.error(f"All attempts to fix {language_name} syntax failed. Keeping original code.")
+            state["modification_failed"] = True
+            state["modified_code"] = state["original_code"]
+            return state
+    
+    # Success path
+    state["modified_code"] = modified_code
+    state["modification_failed"] = False
+    return state
 
+async def create_diff_node(state: AgentState) -> AgentState:
+    """Create diff between original and modified code"""
+    # Check if modification failed
+    if state.get("modification_failed", False):
+        log.warning("Skipping diff generation due to failed modification")
+        state["diff_output"] = ""  # Empty diff since we're using original code
+        return state
+        
+    # Create diff only if the code was actually modified
+    diff = difflib.unified_diff(
+        state["original_code"].splitlines(keepends=True),
+        state["modified_code"].splitlines(keepends=True),
+        fromfile=f"a/{state['target_file_rel_path']}",
+        tofile=f"b/{state['target_file_rel_path']}"
+    )
+    diff_output = "".join(diff)
+    
+    # Check if we actually have changes
+    if not diff_output.strip():
+        log.warning("No actual changes made to the code")
+        state["modification_failed"] = True
+    else:
+        state["modification_failed"] = False
+        
+    state["diff_output"] = diff_output
+    return state
+
+async def create_pr_node(state: AgentState) -> AgentState:
+    """Create PR if in a GitHub repo and modification was successful"""
+    # Skip PR creation if modification failed or if there's no diff
+    if state.get("modification_failed", False) or not state["diff_output"].strip():
+        log.warning("Skipping PR creation due to failed modification or no changes")
+        state["pr_created"] = False
+        return state
+        
+    # Create PR only if in a GitHub repo with token
+    if state["is_github_repo"] and GITHUB_TOKEN:
         try:
-            result = TOOLS[tool_name](**arguments)
-        except Exception as exc:
-            log.exception(f"工具 {tool_name} 崩溃")
-            result = {"status": "failure", "message": str(exc)}
-
-        # 3. 回传工具执行结果
-        payload = {
-            "event": "tool_result",
-            "name": tool_name,
-            "arguments": arguments,
-            "result": result
-        }
-
+            # Write the modified code to the file
+            target_file_abs_path = CODE_DIR / state["target_file_rel_path"]
+            with open(target_file_abs_path, "w", encoding='utf-8') as f:
+                f.write(state["modified_code"])
+                
+            # Create the PR
+            state["pr_created"] = create_github_pr(CODE_DIR, state["target_file_rel_path"], state["task_description"])
+        except Exception as e:
+            log.error(f"Error creating PR: {e}")
+            state["pr_created"] = False
     else:
-        mcp_step(task_id, {"event": "agent_abort", "reason": "max_iterations"})
+        state["pr_created"] = False
+        
+    return state
 
-# --- 调整 CLI 入口 ---
-def load_task_from_cli() -> Dict[str, Any]:
-    """支持从 STDIN 或 --task_file 读取 JSON 任务"""
-    import argparse
-    p = argparse.ArgumentParser()
-    p.add_argument("--task_file", help="包含任务 JSON 的文件路径")
-    args = p.parse_args()
+# --- Build Workflow ---
+workflow = Graph()
 
-    if args.task_file:
-        return json.loads(Path(args.task_file).read_text())
-    else:
-        return json.loads(sys.stdin.read())
+# Add nodes
+workflow.add_node("load_code", load_code_node)
+workflow.add_node("generate_code", generate_code_node) 
+workflow.add_node("create_diff", create_diff_node)
+workflow.add_node("create_pr", create_pr_node)
 
-if __name__ == "__main__":
-    try:
-        task = load_task_from_cli()
-    except Exception as exc:
-        print("无法解析任务 JSON:", exc, file=sys.stderr)
+# Define edges
+workflow.add_edge("load_code", "generate_code")
+workflow.add_edge("generate_code", "create_diff")
+workflow.add_edge("create_diff", "create_pr")
+
+# Set entry and exit points
+workflow.set_entry_point("load_code")
+workflow.set_finish_point("create_pr")
+
+# Main function using workflow
+async def main():
+    """Main entry point for the workflow-based agent"""
+    # Check if we have enough command line arguments
+    if len(sys.argv) < 4:
+        print("Usage: python agent.py <task_description> <target_file_rel_path> <is_github_repo>")
         sys.exit(1)
-    run_task(task)
+        
+    # Initialize state from command line arguments
+    initial_state = {
+        "task_description": sys.argv[1],
+        "target_file_rel_path": sys.argv[2],
+        "is_github_repo": sys.argv[3].lower() == 'true',
+        "original_code": "",
+        "modified_code": "",
+        "diff_output": "",
+        "pr_created": False,
+        "modification_failed": False
+    }
+    
+    app = workflow.compile()
+    try:
+        result = await app.ainvoke(initial_state)
+    except Exception as e:
+        log.error(f"Error running workflow: {e}")
+        return None
+    
+    return result
+# --- Run the script if executed directly ---
+if __name__ == "__main__":
+    # Check if we're running in MCP mode
+    if len(sys.argv) > 1 and sys.argv[1] == "--mcp-mode":
+        # MCP service mode - listen for MCP requests
+        task_id = str(uuid.uuid4()) if len(sys.argv) <= 2 else sys.argv[2]
+        log.info(f"Starting in MCP mode with task ID: {task_id}")
+        
+        # Simple MCP loop
+        payload = {"event": "start", "agent": "codex-agent"}
+        try:
+            mcp_response = mcp_step(task_id, payload)
+            log.info(f"MCP response: {mcp_response}")
+        except Exception as e:
+            log.error(f"Error in MCP mode: {e}")
+    else:
+        # Standard workflow mode
+        import asyncio
+        asyncio.run(main())

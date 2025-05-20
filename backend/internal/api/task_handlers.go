@@ -3,44 +3,41 @@ package api
 import (
 	"context"
 	"fmt"
+	"github.com/yunmaoQu/codex-sys/internal/config"
 	"log"
 	"net/http"
 	"time"
 
 	"github.com/yunmaoQu/codex-sys/internal/platform/kafka"
 	"github.com/yunmaoQu/codex-sys/internal/platform/objectstorage"
-	"github.com/yunmaoQu/codex-sys/internal/task" 
+	"github.com/yunmaoQu/codex-sys/internal/task"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 )
 
-// 简化
 type TaskAPI struct {
 	db            *sqlx.DB
-	kafkaProducer *kafka.Producer              // Assuming a wrapper for kafka-go
-	cosClient     *objectstorage.ClientWrapper // Assuming a wrapper for COS SDK
-	// redisClient *redis.Client
+	kafkaProducer *kafka.Producer
+	cosClient     *objectstorage.ClientWrapper
+	cfg           *config.Config
 }
 
 func RegisterRoutes(router *gin.Engine, db *sqlx.DB, kp *kafka.Producer, cosClient *objectstorage.ClientWrapper) {
 	api := &TaskAPI{db: db, kafkaProducer: kp, cosClient: cosClient}
-	// ... routes ...
 	router.POST("/api/task", api.HandleCreateTask)
 	router.GET("/api/task/:task_id/status", api.HandleGetTaskStatus)
 	router.GET("/logs/:task_id/:filename", api.HandleGetLogFile)
 }
 
 func (api *TaskAPI) HandleCreateTask(c *gin.Context) {
-	// ... (parse form data as before: git_url, task_description, target_file, etc.) ...
 	gitURL := c.PostForm("git_url")
 	taskDescription := c.PostForm("task_description")
 	targetFile := c.PostForm("target_file")
-	// ... (validation) ...
 
 	taskID := uuid.NewString()
-	newTask := task.Definition{ // task.Definition is your struct for task metadata
+	newTask := task.Definition{
 		ID:              taskID,
 		TaskDescription: taskDescription,
 		TargetFile:      targetFile,
@@ -66,15 +63,14 @@ func (api *TaskAPI) HandleCreateTask(c *gin.Context) {
 		newTask.ZipFileName = zipFileHeader.Filename
 
 		// Upload ZIP to COS
-		s3Key := fmt.Sprintf("tmp_zips/%s/%s", taskID, zipFileHeader.Filename)
-		err := api.cosClient.UploadFile(context.Background(), "your-code-bucket", s3Key, zipFile, zipFileHeader.Size)
+		cosKey := fmt.Sprintf("tmp_zips/%s/%s", taskID, zipFileHeader.Filename)
+		err := api.cosClient.UploadFile(context.Background(), api.cfg.COS.Buckets.Code, cosKey, zipFile, zipFileHeader.Size)
 		if err != nil {
 			log.Printf("Failed to upload ZIP to COS for task %s: %v", taskID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload code to storage"})
 			return
 		}
-		codeLocationS3Path = fmt.Sprintf("s3://your-code-bucket/%s", s3Key) // Or just the key
-		newTask.CodePathCOS = codeLocationS3Path
+		newTask.CodePathCOS = fmt.Sprintf("s3://%s/%s", api.cfg.COS.Buckets.Code, cosKey)
 		log.Printf("Uploaded ZIP to COS: %s", codeLocationS3Path)
 	}
 
@@ -108,24 +104,24 @@ func (api *TaskAPI) HandleCreateTask(c *gin.Context) {
 
 func (api *TaskAPI) HandleGetTaskStatus(c *gin.Context) {
 	taskID := c.Param("task_id")
-	// Fetch from Redis first (cache)
-	// If not in Redis, fetch from MySQL
-	// For simplicity, directly from MySQL:
+	//todo redis
 	t, err := task.GetByID(c.Request.Context(), api.db, taskID)
 	if err != nil { /* ... error handling ... */
 		return
 	}
 
-	// If task is completed and logs are on COS, generate pre-signed URLs for log files
-	// if t.Status == task.StatusCompleted {
-	//    logLinks := make(map[string]string)
-	//    for _, logFile := range []string{"diff.patch", "agent.log"} {
-	//        s3Key := fmt.Sprintf("logs/%s/%s", taskID, logFile)
-	//        url, err := api.cosClient.GetPresignedURL(context.Background(), "your-logs-bucket", s3Key, time.Minute*15)
-	//        if err == nil { logLinks[logFile] = url }
-	//    }
-	//    t.LogFileURLs = logLinks // Add this field to task.Definition
-	// }
+	//If task is completed and logs are on COS, generate pre-signed URLs for log files
+	if t.Status == task.StatusCompleted {
+		logLinks := make(map[string]string)
+		for _, logFile := range []string{"diff.patch", "agent.log"} {
+			s3Key := fmt.Sprintf("logs/%s/%s", taskID, logFile)
+			url, err := api.cosClient.GetPresignedURL(context.Background(), "your-logs-bucket", s3Key, time.Minute*15)
+			if err == nil {
+				logLinks[logFile] = url
+			}
+		}
+		t.LogFileURLs = logLinks // Add this field to task.Definition
+	}
 	c.JSON(http.StatusOK, t)
 }
 

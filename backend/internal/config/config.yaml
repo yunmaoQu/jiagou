@@ -1,6 +1,6 @@
 server:
   port: "8080"
-  env: "development"
+  env: "dev"
 
 database:
   host: "localhost"
