@@ -1,52 +1,77 @@
-package main
+package worker
 
 import (
 	"fmt"
-	"github.com/tencentyun/cos-go-sdk-v5"
-	"github.com/yunmaoQu/codex-sys/worker/config"
-	"github.com/yunmaoQu/codex-sys/worker/consumer"
+	"github.com/yunmaoQu/codex-sys/internal/platform/objectstorage"
 	"log"
-	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/yunmaoQu/codex-sys/internal/platform/database"
+	"github.com/yunmaoQu/codex-sys/worker/config"
 )
 
 // RunWorker 启动 Worker 服务
 func RunWorker() error {
 	// 1. 加载配置
-	cfg, _ := config.LoadFromYAML("config.yaml")
-
-	bucketUrl := fmt.Sprintf("https://%s.cos.%s.myqcloud.com", cfg.COS.Bucket, cfg.COS.Region)
-	u, _ := url.Parse(bucketUrl)
-	b := &cos.BaseURL{BucketURL: u}
-	client := cos.NewClient(b, &http.Client{
-		Transport: &cos.AuthorizationTransport{
-			SecretID:  cfg.COS.AccessKey,
-			SecretKey: cfg.COS.SecretKey,
-		},
-	})
-	// 3. 创建任务消费者
-	taskConsumer, err := consumer.NewTaskConsumer(cfg.Kafka.Brokers, client, cfg.Kafka.Topics.TaskTopic)
+	appCfg, err := config.LoadFromYAML("config.yaml")
 	if err != nil {
-		return err
+		return fmt.Errorf("加载配置失败: %w", err)
 	}
 
-	// 4. 启动消费者
-	if err := taskConsumer.Start(); err != nil {
-		return err
+	cosConfig := objectstorage.COSConfig{
+		SecretID:  appCfg.COS.AccessKey,
+		SecretKey: appCfg.COS.SecretKey,
+		Region:    appCfg.COS.Region,
+		BucketURL: fmt.Sprintf("https://%s.cos.%s.myqcloud.com", appCfg.COS.Bucket, appCfg.COS.Region),
+	}
+	cosClient, _ := objectstorage.NewCOSClient(cosConfig) // COS/S3 client
+
+	// 3. 建立数据库连接（如果需要）
+	// 注意：这里的 db 可以为 nil，如果不需要数据库操作
+	var dbWrapper *database.DBClientWrapper
+	// 如果需要数据库连接，则初始化它
+	// dbWrapper = database.NewDBClientWrapper(...)
+
+	// 4. 创建 Worker 配置
+	workerCfg := Config{
+		ExecutionMode:      DockerMode,           // 或者 handler.K8sMode
+		AgentImage:         "codex-agent:latest", // 可以从 appCfg 中获取
+		TempDirBase:        "/tmp/codex-worker",
+		TaskTopic:          appCfg.Kafka.Topics.TaskTopic,
+		K8sNamespace:       "default",     // 如果使用 K8s 模式
+		K8sServiceAccount:  "codex-agent", // 如果使用 K8s 模式
+		CPULimit:           "1",
+		MemoryLimit:        "2Gi",
+		CleanupTempDirs:    true,
+		CodeBucket:         appCfg.COS.Bucket,
+		LogsBucket:         appCfg.COS.Bucket, // 可能需要单独设置日志存储桶
+		EnableGitHubAccess: true,
 	}
 
-	// 5. 等待信号退出
+	// 5. 创建 Worker 实例
+	worker, err := NewWorker(workerCfg, appCfg.Kafka.Brokers, cosClient, dbWrapper)
+	if err != nil {
+		return fmt.Errorf("创建 Worker 失败: %w", err)
+	}
+
+	// 6. 启动 Worker
+	if err := worker.Start(); err != nil {
+		return fmt.Errorf("启动 Worker 失败: %w", err)
+	}
+
+	log.Println("Worker 启动成功，等待任务...")
+
+	// 7. 等待退出信号
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	<-sig
 
-	// 6. 优雅关闭
+	// 8. 优雅关闭
 	log.Println("正在关闭 Worker 服务...")
-	if err := taskConsumer.Stop(); err != nil {
-		log.Printf("关闭消费者出错: %v", err)
+	if err := worker.Stop(); err != nil {
+		log.Printf("关闭 Worker 出错: %v", err)
 	}
 
 	return nil
