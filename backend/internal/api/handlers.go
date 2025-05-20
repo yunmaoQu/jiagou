@@ -3,252 +3,140 @@ package api
 import (
 	"context"
 	"fmt"
-	"github.com/yunmaoQu/codex-sys/internal/task"
-	"github.com/yunmaoQu/codex-sys/utils"
-	"io"
+	"github.com/yunmaoQu/codex-sys/internal/config"
 	"log"
-	"mime/multipart"
 	"net/http"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
 	"time"
 
+	"github.com/yunmaoQu/codex-sys/internal/platform/kafka"
+	"github.com/yunmaoQu/codex-sys/internal/platform/objectstorage"
+	"github.com/yunmaoQu/codex-sys/internal/task"
+
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 )
 
-// ExtendedTask extends task.Definition with additional fields needed for local processing
-type ExtendedTask struct {
-	task.Definition
-	RepoPath    string
-	LogPath     string
-	IsGitHubRepo bool
+type TaskAPI struct {
+	db            *sqlx.DB
+	kafkaProducer *kafka.Producer
+	cosClient     *objectstorage.ClientWrapper
+	cfg           *config.Config
 }
 
-// AddTask adds a task to the database
-func AddTask(ctx context.Context, db *sqlx.DB, t *ExtendedTask) error {
-	// First create the task in the database
-	if err := task.Create(ctx, db, &t.Definition); err != nil {
-		return err
-	}
-	return nil
+func RegisterRoutes(router *gin.Engine, db *sqlx.DB, kp *kafka.Producer, cosClient *objectstorage.ClientWrapper) {
+	api := &TaskAPI{db: db, kafkaProducer: kp, cosClient: cosClient}
+	router.POST("/api/task", api.HandleCreateTask)
+	router.GET("/api/task/:task_id/status", api.HandleGetTaskStatus)
+	router.GET("/logs/:task_id/:filename", api.HandleGetLogFile)
 }
 
-// GetTask retrieves a task from the database
-func GetTask(ctx context.Context, db *sqlx.DB, id string) (*ExtendedTask, bool) {
-	t, err := task.GetByID(ctx, db, id)
-	if err != nil {
-		return nil, false
-	}
-	
-	// Create an extended task with the database task data
-	ext := &ExtendedTask{
-		Definition: *t,
-		RepoPath:   utils.GetRepoPath(id),
-		LogPath:    utils.GetLogPath(id),
-	}
-	return ext, true
-}
-
-// UpdateTaskStatus updates the status of a task in the database
-func UpdateTaskStatus(ctx context.Context, db *sqlx.DB, id string, status task.Status, message string) error {
-	return task.UpdateStatus(ctx, db, id, status, message)
-}
-
-func HandleCreateTask(c *gin.Context) {
-	// Get database from context
-	db := c.MustGet("db").(*sqlx.DB)
-	ctx := c.Request.Context()
-	taskID := utils.GenerateTaskID()
-	repoPath := utils.GetRepoPath(taskID)
-	logPath := utils.GetLogPath(taskID)
-
-	if err := os.MkdirAll(repoPath, 0755); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create repository directory", "details": err.Error()})
-		return
-	}
-	if err := os.MkdirAll(logPath, 0755); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create log directory", "details": err.Error()})
-		return
-	}
-
-	// Parse form data
+func (api *TaskAPI) HandleCreateTask(c *gin.Context) {
 	gitURL := c.PostForm("git_url")
 	taskDescription := c.PostForm("task_description")
-	targetFile := c.PostForm("target_file")       // e.g., "src/main.py"
-	userGitHubToken := c.PostForm("github_token") // Optional, task-specific token
+	targetFile := c.PostForm("target_file")
 
-	if taskDescription == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "task_description is required"})
-		return
+	taskID := uuid.NewString()
+	newTask := task.Definition{
+		ID:              taskID,
+		TaskDescription: taskDescription,
+		TargetFile:      targetFile,
+		Status:          task.StatusQueued,
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
 	}
-	if targetFile == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "target_file is required"})
-		return
-	}
-	// Sanitize target_file to prevent path traversal within the repo
-	cleanTargetFile, err := utils.SanitizePath(targetFile)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid target_file path", "details": err.Error()})
-		return
-	}
-	targetFile = cleanTargetFile
 
-	var zipFileHeader *multipart.FileHeader
-	var zipFile multipart.File
-	var errUpload error
+	var codeLocationS3Path string
 
-	if gitURL == "" {
-		zipFile, zipFileHeader, errUpload = c.Request.FormFile("zip_file")
-		if errUpload != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "git_url or zip_file is required", "details": errUpload.Error()})
+	if gitURL != "" {
+		newTask.InputType = task.InputGit
+		newTask.GitURL = gitURL
+		codeLocationS3Path = gitURL // Worker will handle cloning
+	} else {
+		zipFile, zipFileHeader, errUpload := c.Request.FormFile("zip_file")
+		if errUpload != nil { /* ... error handling ... */
 			return
 		}
 		defer zipFile.Close()
+
+		newTask.InputType = task.InputZip
+		newTask.ZipFileName = zipFileHeader.Filename
+
+		// Upload ZIP to COS
+		cosKey := fmt.Sprintf("tmp_zips/%s/%s", taskID, zipFileHeader.Filename)
+		err := api.cosClient.UploadFile(context.Background(), api.cfg.COS.Buckets.Code, cosKey, zipFile, zipFileHeader.Size)
+		if err != nil {
+			log.Printf("Failed to upload ZIP to COS for task %s: %v", taskID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload code to storage"})
+			return
+		}
+		newTask.CodePathCOS = fmt.Sprintf("s3://%s/%s", api.cfg.COS.Buckets.Code, cosKey)
+		log.Printf("Uploaded ZIP to COS: %s", codeLocationS3Path)
 	}
 
-	taskDef := &ExtendedTask{
-		Definition: task.Definition{
-			ID:              taskID,
-			GitURL:          gitURL,
-			TargetFile:      targetFile,
-			TaskDescription: taskDescription,
-			Status:          task.StatusPending,
-			GitHubToken:     userGitHubToken,
-			CreatedAt:       time.Now(),
-			UpdatedAt:       time.Now(),
-		},
-		RepoPath:     repoPath,
-		LogPath:      logPath,
-		IsGitHubRepo: false,
-	}
-
-	if err := AddTask(ctx, db, taskDef); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create task", "details": err.Error()})
+	// Save task to MySQL
+	if err := task.Create(c.Request.Context(), api.db, &newTask); err != nil {
+		log.Printf("Failed to save task to DB for task %s: %v", taskID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create task record"})
 		return
 	}
 
-	if gitURL != "" {
-		UpdateTaskStatus(ctx, db, taskID, task.StatusDownloadingCode, "Cloning repository...")
-		log.Printf("Cloning %s into %s for task %s", gitURL, repoPath, taskID)
-		cmd := exec.Command("git", "clone", "--depth=1", gitURL, repoPath)
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			log.Printf("Git clone error for task %s: %s\nOutput: %s", taskID, err, string(output))
-			UpdateTaskStatus(ctx, db, taskID, task.StatusFailed, "Failed to clone Git repository: "+err.Error())
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to clone Git repository", "details": err.Error(), "output": string(output)})
-			return
-		}
-		log.Printf("Git clone successful for task %s", taskID)
-		if strings.Contains(gitURL, "github.com") {
-			taskDef.IsGitHubRepo = true // Mark if it's likely a GitHub repo for PR creation
-		}
-
-	} else if zipFileHeader != nil {
-		UpdateTaskStatus(ctx, db, taskID, task.StatusDownloadingCode, "Processing ZIP file...")
-		taskDef.ZipFileName = zipFileHeader.Filename
-		tempZipPath := filepath.Join(repoPath, "_temp_"+zipFileHeader.Filename) // Store zip temporarily inside repoPath for simplicity
-
-		out, err := os.Create(tempZipPath)
-		if err != nil {
-			UpdateTaskStatus(ctx, db, taskID, task.StatusFailed, "Failed to save ZIP file")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save ZIP file", "details": err.Error()})
-			return
-		}
-		defer out.Close()
-		defer os.Remove(tempZipPath) // Clean up temp zip
-
-		_, err = io.Copy(out, zipFile)
-		if err != nil {
-			UpdateTaskStatus(ctx, db, taskID, task.StatusFailed, "Failed to copy ZIP file content")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to copy ZIP file content", "details": err.Error()})
-			return
-		}
-		// Important: Close the file before unzipping
-		out.Close()
-
-		log.Printf("Unzipping %s into %s for task %s", tempZipPath, repoPath, taskID)
-		_, err = utils.Unzip(tempZipPath, repoPath)
-		if err != nil {
-			log.Printf("Unzip error for task %s: %v", taskID, err)
-			UpdateTaskStatus(ctx, db, taskID, task.StatusFailed, "Failed to unzip archive")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to unzip archive", "details": err.Error()})
-			return
-		}
-		log.Printf("Unzip successful for task %s", taskID)
-		taskDef.IsGitHubRepo = false // ZIP uploads are not GitHub repos for PR purposes
+	// Publish task to Kafka
+	kafkaMsg := task.KafkaTaskMessage{
+		TaskID:             taskID,
+		InputType:          string(newTask.InputType),
+		CodeLocation:       codeLocationS3Path, // Git URL or S3 path to ZIP
+		TargetFile:         targetFile,
+		TaskDescription:    taskDescription,
+		UserGitHubToken:    c.PostForm("github_token"), // Pass if provided
+		OpenAIAPIKeySource: "env_or_secret_manager",    // Indicate where worker should get it
+	}
+	if err := api.kafkaProducer.Publish(c.Request.Context(), taskID, kafkaMsg); err != nil {
+		log.Printf("Failed to publish task to Kafka for task %s: %v", taskID, err)
+		// Potentially rollback DB transaction or mark task as failed to publish
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to queue task"})
+		return
 	}
 
-	// Start the Docker agent in a goroutine
-	// TODO: Update utils.RunAgentContainer to accept task.Definition instead of tasks.Task
-	// For now, we'll just log the task information
-	log.Printf("Task %s created and would start agent container (implementation needed)", taskID)
-
-	c.JSON(http.StatusOK, gin.H{
-		"message":  "Task created successfully",
-		"task_id":  taskID,
-		"status":   task.StatusPending, // Initial status will be updated by async process
-		"logs_url": fmt.Sprintf("/api/logs/%s/", taskID),
-	})
+	log.Printf("Task %s created and published to Kafka.", taskID)
+	c.JSON(http.StatusOK, gin.H{"task_id": taskID, "status": task.StatusQueued})
 }
 
-func HandleGetTaskStatus(c *gin.Context) {
-	db := c.MustGet("db").(*sqlx.DB)
-	ctx := c.Request.Context()
+func (api *TaskAPI) HandleGetTaskStatus(c *gin.Context) {
 	taskID := c.Param("task_id")
-	task, exists := GetTask(ctx, db, taskID)
-	if !exists {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Task not found"})
+	//todo redis
+	t, err := task.GetByID(c.Request.Context(), api.db, taskID)
+	if err != nil { /* ... error handling ... */
 		return
 	}
-	c.JSON(http.StatusOK, task)
+
+	//If task is completed and logs are on COS, generate pre-signed URLs for log files
+	if t.Status == task.StatusCompleted {
+		logLinks := make(map[string]string)
+		for _, logFile := range []string{"diff.patch", "agent.log"} {
+			s3Key := fmt.Sprintf("logs/%s/%s", taskID, logFile)
+			url, err := api.cosClient.GetPresignedURL(context.Background(), "your-logs-bucket", s3Key, time.Minute*15)
+			if err == nil {
+				logLinks[logFile] = url
+			}
+		}
+		t.LogFileURLs = logLinks // Add this field to task.Definition
+	}
+	c.JSON(http.StatusOK, t)
 }
 
-func HandleGetLogFile(c *gin.Context) {
-	db := c.MustGet("db").(*sqlx.DB)
-	ctx := c.Request.Context()
+func (api *TaskAPI) HandleGetLogFile(c *gin.Context) {
 	taskID := c.Param("task_id")
 	filename := c.Param("filename")
 
-	// Sanitize filename to prevent path traversal
-	cleanFilename, err := utils.SanitizePath(filename)
+	// 日志文件存储在 COS，可以生成预签名URL返回，或直接代理下载
+	// 生成 COS 预签名URL
+	s3Key := fmt.Sprintf("logs/%s/%s", taskID, filename)
+	logBucket := "codex-logs" // 与 config.yaml 保持一致，或通过依赖注入传入
+	url, err := api.cosClient.GetPresignedURL(c.Request.Context(), logBucket, s3Key, time.Minute*15)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid filename", "details": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get log file URL", "details": err.Error()})
 		return
 	}
-	filename = cleanFilename
-
-	task, exists := GetTask(ctx, db, taskID)
-	if !exists {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Task not found"})
-		return
-	}
-
-	logFilePath := filepath.Join(task.LogPath, filename)
-
-	// Security check: ensure the path is still within the intended log directory
-	absLogPath, _ := filepath.Abs(task.LogPath)
-	absRequestedPath, _ := filepath.Abs(logFilePath)
-	if !strings.HasPrefix(absRequestedPath, absLogPath) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Access to this file is forbidden"})
-		return
-	}
-
-	if _, err := os.Stat(logFilePath); os.IsNotExist(err) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Log file not found", "filename": filename})
-		return
-	}
-
-	// Set appropriate content type for patches
-	if strings.HasSuffix(filename, ".patch") || strings.HasSuffix(filename, ".diff") {
-		c.Header("Content-Type", "text/x-diff")
-	} else if strings.HasSuffix(filename, ".txt") || strings.HasSuffix(filename, ".log") {
-		c.Header("Content-Type", "text/plain; charset=utf-8")
-	}
-	// Default to octet-stream if unsure, or let browser guess
-	// c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename)) // Optional: force download
-
-	c.File(logFilePath)
+	c.JSON(http.StatusOK, gin.H{"url": url})
 }

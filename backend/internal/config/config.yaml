@@ -1,6 +1,6 @@
 server:
   port: "8080"
-  env: "development"
+  env: "dev"
 
 database:
   host: "localhost"
@@ -25,7 +25,7 @@ kafka:
 cos:
   secretid: "your-cos-secret-id"
   secretkey: "your-cos-secret-key"
-  region: "ap-guangzhou"
+  region: "ap-shanghai"
   buckets:
     code: "codex-code"
     logs: "codex-logs"
