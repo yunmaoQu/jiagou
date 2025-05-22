@@ -14,6 +14,7 @@ import openai
 from dotenv import load_dotenv
 from langgraph.graph import Graph
 
+# todo upsonic mem0
 # --- Configuration ---
 # Load .env file from /app (if it exists, for local testing) or rely on Docker env vars
 dotenv_path = Path('/app/.env')

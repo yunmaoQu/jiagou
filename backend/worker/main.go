@@ -1,8 +1,9 @@
-package worker
+package main
 
 import (
 	"fmt"
 	"github.com/yunmaoQu/codex-sys/internal/platform/objectstorage"
+	"github.com/yunmaoQu/codex-sys/worker/worker"
 	"log"
 	"os"
 	"os/signal"
@@ -28,15 +29,15 @@ func RunWorker() error {
 	}
 	cosClient, _ := objectstorage.NewCOSClient(cosConfig) // COS/S3 client
 
-	// 3. 建立数据库连接（如果需要）
-	// 注意：这里的 db 可以为 nil，如果不需要数据库操作
 	var dbWrapper *database.DBClientWrapper
 	// 如果需要数据库连接，则初始化它
 	// dbWrapper = database.NewDBClientWrapper(...)
 
+	// todo all unmarshall
+
 	// 4. 创建 Worker 配置
-	workerCfg := Config{
-		ExecutionMode:      DockerMode,           // 或者 handler.K8sMode
+	workerCfg := worker.Config{
+		ExecutionMode:      worker.DockerMode,    // 或者 handler.K8sMode
 		AgentImage:         "codex-agent:latest", // 可以从 appCfg 中获取
 		TempDirBase:        "/tmp/codex-worker",
 		TaskTopic:          appCfg.Kafka.Topics.TaskTopic,
@@ -51,13 +52,13 @@ func RunWorker() error {
 	}
 
 	// 5. 创建 Worker 实例
-	worker, err := NewWorker(workerCfg, appCfg.Kafka.Brokers, cosClient, dbWrapper)
+	consumer, err := worker.NewWorker(workerCfg, appCfg.Kafka.Brokers, cosClient, dbWrapper)
 	if err != nil {
 		return fmt.Errorf("创建 Worker 失败: %w", err)
 	}
 
 	// 6. 启动 Worker
-	if err := worker.Start(); err != nil {
+	if err := consumer.Start(); err != nil {
 		return fmt.Errorf("启动 Worker 失败: %w", err)
 	}
 
@@ -70,7 +71,7 @@ func RunWorker() error {
 
 	// 8. 优雅关闭
 	log.Println("正在关闭 Worker 服务...")
-	if err := worker.Stop(); err != nil {
+	if err := consumer.Stop(); err != nil {
 		log.Printf("关闭 Worker 出错: %v", err)
 	}
 
