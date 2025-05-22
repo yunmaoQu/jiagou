@@ -1,10 +1,8 @@
 kafka:
-  brokers:
-    - "localhost:9092"
-    - "kafka:9092"
+  brokers: ["localhost:9092"]
   topics:
-    taskTopic: "codex-tasks"
-    resultTopic: "code-results"
+    task: "codex-tasks"
+    result: "codex-results"
 
 cos:
   buckets: 

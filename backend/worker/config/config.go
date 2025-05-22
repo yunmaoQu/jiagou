@@ -10,8 +10,8 @@ type Config struct {
 	Kafka struct {
 		Brokers []string
 		Topics  struct {
-			TaskTopic   string
-			ResultTopic string
+			Task   string
+			Result string
 		}
 	}
 	// COS configuration

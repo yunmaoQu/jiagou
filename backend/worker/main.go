@@ -48,14 +48,15 @@ func RunWorker() error {
 		ExecutionMode:      worker.DockerMode,    // 或者 handler.K8sMode
 		AgentImage:         "codex-agent:latest", // 可以从 appCfg 中获取
 		TempDirBase:        "/tmp/codex-worker",
-		TaskTopic:          appCfg.Kafka.Topics.TaskTopic,
+		TaskTopic:          appCfg.Kafka.Topics.Task,
+		ReaslutTopic: 	    appCfg.Kafka.Topics.Result,
 		K8sNamespace:       "default",     // 如果使用 K8s 模式
 		K8sServiceAccount:  "codex-agent", // 如果使用 K8s 模式
 		CPULimit:           "1",
 		MemoryLimit:        "2Gi",
 		CleanupTempDirs:    true,
 		CodeBucket:         appCfg.COS.Buckets.Code,
-		LogsBucket:         appCfg.COS.Buckets.Logs, // 可能需要单独设置日志存储桶
+		LogsBucket:         appCfg.COS.Buckets.Logs, 
 		EnableGitHubAccess: true,
 	}
 

@@ -68,6 +68,7 @@ type Config struct {
 	AgentImage         string
 	TempDirBase        string
 	TaskTopic          string
+	ReaslutTopic       string
 	K8sNamespace       string
 	K8sServiceAccount  string
 	CPULimit           string
