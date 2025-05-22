@@ -16,7 +16,7 @@ import (
 // RunWorker 启动 Worker 服务
 func RunWorker() error {
 	// 1. 加载配置
-	appCfg, err := config.LoadFromYAML("config.yaml")
+	appCfg, err := config.LoadFromYAML("backend/worker/config/config.yaml")
 	if err != nil {
 		return fmt.Errorf("加载配置失败: %w", err)
 	}
@@ -29,11 +29,20 @@ func RunWorker() error {
 	}
 	cosClient, _ := objectstorage.NewCOSClient(cosConfig) // COS/S3 client
 
+	buildDSN := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+		appCfg.Database.Username,
+		appCfg.Database.Password,
+		appCfg.Database.Host,
+		appCfg.Database.Port,
+		appCfg.Database.Name,
+	)
+	db, err := database.NewMySQLConnection(buildDSN)
+	if err != nil {
+		log.Fatalf("Failed to connect to MySQL: %v", err)
+	}
+	defer db.Close()
 	var dbWrapper *database.DBClientWrapper
-	// 如果需要数据库连接，则初始化它
-	// dbWrapper = database.NewDBClientWrapper(...)
-
-	// todo all unmarshall
+	dbWrapper = database.NewDBClientWrapper(db)
 
 	// 4. 创建 Worker 配置
 	workerCfg := worker.Config{

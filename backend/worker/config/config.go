@@ -23,6 +23,14 @@ type Config struct {
 	Docker struct {
 		AgentImage string
 	}
+
+	Database struct {
+		Host     string
+		Port     string
+		Username string
+		Password string
+		Name     string
+	}
 }
 
 // LoadFromYAML 加载 YAML 配置文件

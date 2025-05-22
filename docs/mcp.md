@@ -12,17 +12,17 @@ codex-agent：一个简洁的执行封装器，功能流程：
 1.  从 STDIN 读取 JSON “任务”（或通过 CLI 参数 --task_file …）
 2.  向 MCP 服务器请求下一步思考 / 工具调用
 3.  执行指定工具
-4.  将结果回传给 MCP，直至对方返回 "finish"
-
-环境变量
----------
-OPENAI_API_KEY            – 若 MCP 需代理裸模调用则使用
-MCP_SERVER_URL            – 例如 http://mcp:8000
+4.  将结果回传给 MCP，直至对方返回 "fini/mcp:8000
 OPENAI_FINETUNED_MODEL_ID – 可选，转发给 MCP 的主模型 id
 OPENAI_CRITIQUE_MODEL_ID  – 可选，转发给 MCP 的批判模型 id
 CI                         – 若设置（如 GitHub Actions），禁止 `!pip install …`
 """
+sh"
 
+环境变量
+---------
+OPENAI_API_KEY            – 若 MCP 需代理裸模调用则使用
+MCP_SERVER_URL            – 例如 http:/
 from __future__ import annotations
 import os, sys, json, subprocess, logging, shlex, difflib, uuid, time
 from pathlib import Path
