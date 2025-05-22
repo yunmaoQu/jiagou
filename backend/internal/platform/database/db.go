@@ -6,6 +6,9 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	"github.com/yunmaoQu/codex-sys/internal/task"
+	
+	_ "github.com/go-sql-driver/mysql" // 注册 MySQL 驱动
+
 )
 
 // DBClientWrapper wraps a sqlx.DB connection with task-specific operations
