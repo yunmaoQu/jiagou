@@ -14,11 +14,15 @@ type Config struct {
 			ResultTopic string
 		}
 	}
+	// COS configuration
 	COS struct {
-		Bucket    string
-		Region    string
-		AccessKey string
+		AccessKey  string
 		SecretKey string
+		Region    string
+		Buckets   struct {
+			Code string
+			Logs string
+		}
 	}
 	Docker struct {
 		AgentImage string
@@ -27,7 +31,7 @@ type Config struct {
 	Database struct {
 		Host     string
 		Port     string
-		Username string
+		User string
 		Password string
 		Name     string
 	}

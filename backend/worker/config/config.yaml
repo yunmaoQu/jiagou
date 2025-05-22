@@ -7,7 +7,9 @@ kafka:
     resultTopic: "code-results"
 
 cos:
-  bucket: "codex-code"
+  buckets: 
+    code: "codex-code"
+    logs: "codex-logs"
   region: "ap-shanghai"
   accessKey: "AKIDxxxxxxxxxxxxxxxxxxxxx"
   secretKey: "xxxxxxxxxxxxxxxxxxxxxxxxxxxx"

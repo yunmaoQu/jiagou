@@ -16,7 +16,7 @@ import (
 // RunWorker 启动 Worker 服务
 func RunWorker() error {
 	// 1. 加载配置
-	appCfg, err := config.LoadFromYAML("backend/worker/config/config.yaml")
+	appCfg, err := config.LoadFromYAML("/workspaces/Codex-like-SYS/backend/worker/config/config.yaml")
 	if err != nil {
 		return fmt.Errorf("加载配置失败: %w", err)
 	}
@@ -25,12 +25,12 @@ func RunWorker() error {
 		SecretID:  appCfg.COS.AccessKey,
 		SecretKey: appCfg.COS.SecretKey,
 		Region:    appCfg.COS.Region,
-		BucketURL: fmt.Sprintf("https://%s.cos.%s.myqcloud.com", appCfg.COS.Bucket, appCfg.COS.Region),
+		BucketURL: fmt.Sprintf("https://%s.cos.%s.myqcloud.com", appCfg.COS.Buckets.Code, appCfg.COS.Region),
 	}
 	cosClient, _ := objectstorage.NewCOSClient(cosConfig) // COS/S3 client
 
 	buildDSN := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
-		appCfg.Database.Username,
+		appCfg.Database.User,
 		appCfg.Database.Password,
 		appCfg.Database.Host,
 		appCfg.Database.Port,
@@ -41,8 +41,7 @@ func RunWorker() error {
 		log.Fatalf("Failed to connect to MySQL: %v", err)
 	}
 	defer db.Close()
-	var dbWrapper *database.DBClientWrapper
-	dbWrapper = database.NewDBClientWrapper(db)
+	var dbWrapper = database.NewDBClientWrapper(db)
 
 	// 4. 创建 Worker 配置
 	workerCfg := worker.Config{
@@ -55,8 +54,8 @@ func RunWorker() error {
 		CPULimit:           "1",
 		MemoryLimit:        "2Gi",
 		CleanupTempDirs:    true,
-		CodeBucket:         appCfg.COS.Bucket,
-		LogsBucket:         appCfg.COS.Bucket, // 可能需要单独设置日志存储桶
+		CodeBucket:         appCfg.COS.Buckets.Code,
+		LogsBucket:         appCfg.COS.Buckets.Logs, // 可能需要单独设置日志存储桶
 		EnableGitHubAccess: true,
 	}
 
