@@ -1,24 +1,23 @@
-
 # Codex-like SYS 开发指南
 
 ## 🎯 场景描述
 
-> **用户访问你的平台** → **托管自己的代码仓库**（GitHub / 本地上传） → **系统将代码放入容器中** → **启动 Agent（模型）分析、修改或生成 PR 等任务**。
+> **用户访问codex** → **托管自己的代码仓库**（GitHub / 本地上传） → **系统将代码放入容器中** → **启动 Agent（模型）分析、修改或生成 PR 等任务**。
 
 构建一个“**AI 代码工作站平台**”，支持代码托管 → 容器化运行 → LLM 助手操作代码！
 
 ---
 
-## ✅ 核心目标功能(正在实现中)
+## ✅ 核心功能
 
-| 步骤 | 功能 |
-|------|------|
-| 1️⃣ 用户上传或托管代码仓库 | 可通过 Git URL 或上传 zip |
-| 2️⃣ 将代码放入隔离的容器中 | 创建每个任务的独立容器（如 Docker） |
-| 3️⃣ 容器中运行 Agent | 拉起一个 Agent，载入代码，执行任务 |
-| 4️⃣ Agent 调用 LLM | 如 OpenAI、Claude、CodeLlama 等 |
-| 5️⃣ 获取结果：修改代码 / diff / PR | 返回结果给用户，可生成 patch 或 PR |
-| 6️⃣ 提供任务日志 & 分享链接 | 任务详情、日志、diff 下载，甚至 Web UI |
+| 步骤                                 | 功能                                   |
+| ------------------------------------ | -------------------------------------- |
+| 1️⃣ 用户上传或托管代码仓库         | 可通过 Git URL 或上传 zip              |
+| 2️⃣ 将代码放入隔离的容器中         | 创建每个任务的独立容器（如 Docker）    |
+| 3️⃣ 容器中运行 Agent               | 拉起一个 Agent，载入代码，执行任务     |
+| 4️⃣ Agent 调用 LLM                 | 如 OpenAI、Claude、deepseek 等         |
+| 5️⃣ 获取结果：修改代码 / diff / PR | 返回结果给用户，可生成 patch 或 PR     |
+| 6️⃣ 提供任务日志 & 分享链接        | 任务详情、日志、diff 下载，甚至 Web UI |
 
 ---
 
@@ -40,18 +39,19 @@ Agent --> Logger["日志 & 结果输出"]
 Logger --> API
 API --> User
 ```
+
 ---
 
 ## 🧱 容器运行模型参考（每个任务一容器）
 
-| 容器内容 | 描述 |
-|----------|------|
-| ✅ 用户代码 | Git clone 或 zip 解压 |
-| ✅ AGENTS.md | 用户自定义 agent 指令（可选） |
-| ✅ setup.sh | 用于初始化环境 |
-| ✅ agent.go / agent.py | 你的任务执行器，调用 LLM |
-| ✅ 环境依赖 | Python、Go、Node 等 |
-| ⛔ 无互联网 | 执行阶段断网，安全隔离（可选） |
+| 容器内容               | 描述                           |
+| ---------------------- | ------------------------------ |
+| ✅ 用户代码            | Git clone 或 zip 解压          |
+| ✅ AGENTS.md           | 用户自定义 agent 指令（可选）  |
+| ✅ setup.sh            | 用于初始化环境                 |
+| ✅ agent.go / agent.py | 你的任务执行器，调用 LLM       |
+| ✅ 环境依赖            | Python、Go、Node 等            |
+| ⛔ 无互联网            | 执行阶段断网，安全隔离（可选） |
 
 ---
 
@@ -60,9 +60,9 @@ API --> User
 1. 用户上传仓库或输入 GitHub URL
 2. 后端克隆代码 / 解压 zip 到临时目录
 3. 调用 Docker API 启动一个容器：
-    - 挂载代码目录
-    - 执行 setup.sh（如果存在）
-    - 启动 agent.go / agent.py 来处理任务
+   - 挂载代码目录
+   - 执行 setup.sh（如果存在）
+   - 启动 agent.go / agent.py 来处理任务
 4. agent 调用 OpenAI API（或本地模型）
 5. 生成结果（解释、修改、diff、PR）
 6. 容器停止，日志和结果保存本地
@@ -155,7 +155,7 @@ def main():
 
     prompt = f"Task: {task}\n\nCode:\n{code}"
     response = openai.ChatCompletion.create(
-        model="gpt-4",
+        model="gpt-o3-high",
         messages=[{"role": "user", "content": prompt}]
     )
 
@@ -174,22 +174,21 @@ if __name__ == "__main__":
 ## ✅ 日志与分享链接
 
 - 每次任务在 `logs/<task_id>` 目录下保存：
-    - `prompt.txt`
-    - `llm_response.txt`
-    - `diff.patch`
-    - `setup.log`
+  - `prompt.txt`
+  - `llm_response.txt`
+  - `diff.patch`
+  - `setup.log`
 - 显示链接如：
-    - `https://codex-sys.com/logs/20250517_xyz/diff.patch`
+  - `https://codex-sys.com/logs/20250517_xyz/diff.patch`
 
 ---
 
 ## ✅ 安全性
+
 | 容器沙箱 | 每个任务一个容器，执行后销毁 |
 | 网络限制 | setup 阶段可以联网，agent 执行阶段禁网（可选） |
 | 权限控制 | 不允许执行非白名单脚本 |
 | LLM API | 使用代理或限速策略 |
-
-
 
 ---
 
@@ -271,90 +270,93 @@ graph LR
 
 **核心流程变化：**
 
-1.  **任务创建 (API 服务):**
-    *   用户通过 API 网关向任一 `APIService` 实例提交任务。
-    *   `APIService`:
-        *   验证请求。
-        *   生成任务 ID。
-        *   将任务元数据（不包括代码本身）存入 `MySQLDB` (状态：`PENDING` 或 `QUEUED`)。
-        *   如果用户上传的是 ZIP 文件，`APIService` 将其**直接上传到 `COSCodeBucket`** 中的一个临时位置 (e.g., `tmp_zips/<task_id>/code.zip`)。
-        *   将包含任务 ID、COS 上的代码位置（Git URL 或 ZIP 文件在 COS 上的路径）、任务描述等信息的**消息发布到 Kafka 的 `TaskTopic`**。
-        *   （可选）在 `RedisCache` 中设置任务的初始状态。
-        *   向用户返回任务 ID 和一个轮询状态的端点。
+1. **任务创建 (API 服务):**
 
-2.  **任务处理 (Worker 服务 - K8s Pods):**
-    *   `WorkerDeployment` 在 Kubernetes 中运行多个 `WorkerPod` 实例。
-    *   每个 `WorkerPod` (Go 程序) 都是 Kafka `TaskTopic` 的消费者。
-    *   当 `WorkerPod` 收到一个任务消息：
-        *   更新 `MySQLDB` 和 `RedisCache` 中的任务状态为 `PROCESSING` (或更细化的状态，如 `DOWNLOADING_CODE`)。
-        *   **代码获取：**
-            *   如果任务是 Git URL，Worker 直接在 Pod 内或临时 Volume 中 `git clone`。
-            *   如果任务是 ZIP，Worker 从 `COSCodeBucket` (e.g., `tmp_zips/<task_id>/code.zip`) **下载 ZIP 文件**到 Pod 内或临时 Volume，然后解压。
-        *   **准备 Agent 容器的输入：**
-            *   将处理后的代码（克隆或解压后）**上传到 `COSCodeBucket`** 的一个任务专属路径 (e.g., `processed_code/<task_id>/`)。Worker 需要确保 Agent 容器能够访问这些代码。
-        *   **启动 Agent 容器 (通过 Kubernetes API):**
-            *   Worker 不再直接调用 Docker SDK。它会**创建一个 Kubernetes `Job` 或 `Pod`**。
-            *   这个 K8s `Job/Pod` 的定义会包含：
-                *   Agent Docker 镜像 (`codex-agent:latest`)。
-                *   环境变量 (API Keys, 任务参数)。
-                *   **Volume 挂载：**
-                    *   **代码输入：** 使用 CSI (Container Storage Interface)驱动程序直接从 `COSCodeBucket` 挂载代码到容器的 `/app/code` (例如，使用 `goofys` 或腾讯云的 `cosfs` CSI 插件)，或者 Worker 先下载代码到 K8s `emptyDir` 或 `PersistentVolumeClaim`，再挂载给 Agent Pod。后者更常见，因为 Agent 可能需要写权限。
-                    *   **日志输出：** 挂载一个 `emptyDir` 或 `PVC` 到容器的 `/app/output`。
-        *   Worker 监控 K8s `Job/Pod` 的状态。
+   * 用户通过 API 网关向任一 `APIService` 实例提交任务。
+   * `APIService`:
+     * 验证请求。
+     * 生成任务 ID。
+     * 将任务元数据（不包括代码本身）存入 `MySQLDB` (状态：`PENDING` 或 `QUEUED`)。
+     * 如果用户上传的是 ZIP 文件，`APIService` 将其**直接上传到 `COSCodeBucket`** 中的一个临时位置 (e.g., `tmp_zips/<task_id>/code.zip`)。
+     * 将包含任务 ID、COS 上的代码位置（Git URL 或 ZIP 文件在 COS 上的路径）、任务描述等信息的**消息发布到 Kafka 的 `TaskTopic`**。
+     * （可选）在 `RedisCache` 中设置任务的初始状态。
+     * 向用户返回任务 ID 和一个轮询状态的端点。
+2. **任务处理 (Worker 服务 - K8s Pods):**
 
-3.  **Agent 执行 (K8s 内的容器):**
-    *   Agent 容器如常运行，读取 `/app/code` 中的代码，执行任务。
-    *   所有输出 (logs, diff, prompt.txt 等) 写入到 `/app/output`。
+   * `WorkerDeployment` 在 Kubernetes 中运行多个 `WorkerPod` 实例。
+   * 每个 `WorkerPod` (Go 程序) 都是 Kafka `TaskTopic` 的消费者。
+   * 当 `WorkerPod` 收到一个任务消息：
+     * 更新 `MySQLDB` 和 `RedisCache` 中的任务状态为 `PROCESSING` (或更细化的状态，如 `DOWNLOADING_CODE`)。
+     * **代码获取：**
+       * 如果任务是 Git URL，Worker 直接在 Pod 内或临时 Volume 中 `git clone`。
+       * 如果任务是 ZIP，Worker 从 `COSCodeBucket` (e.g., `tmp_zips/<task_id>/code.zip`) **下载 ZIP 文件**到 Pod 内或临时 Volume，然后解压。
+     * **准备 Agent 容器的输入：**
+       * 将处理后的代码（克隆或解压后）**上传到 `COSCodeBucket`** 的一个任务专属路径 (e.g., `processed_code/<task_id>/`)。Worker 需要确保 Agent 容器能够访问这些代码。
+     * **启动 Agent 容器 (通过 Kubernetes API):**
+       * Worker 不再直接调用 Docker SDK。它会**创建一个 Kubernetes `Job` 或 `Pod`**。
+       * 这个 K8s `Job/Pod` 的定义会包含：
+         * Agent Docker 镜像 (`codex-agent:latest`)。
+         * 环境变量 (API Keys, 任务参数)。
+         * **Volume 挂载：**
+           * **代码输入：** 使用 CSI (Container Storage Interface)驱动程序直接从 `COSCodeBucket` 挂载代码到容器的 `/app/code` (例如，使用 `goofys` 或腾讯云的 `cosfs` CSI 插件)，或者 Worker 先下载代码到 K8s `emptyDir` 或 `PersistentVolumeClaim`，再挂载给 Agent Pod。后者更常见，因为 Agent 可能需要写权限。
+           * **日志输出：** 挂载一个 `emptyDir` 或 `PVC` 到容器的 `/app/output`。
+     * Worker 监控 K8s `Job/Pod` 的状态。
+3. **Agent 执行 (K8s 内的容器):**
 
-4.  **结果收集与状态更新 (Worker 服务):**
-    *   当 Agent K8s `Job/Pod` 完成后：
-        *   Worker 从 `/app/output` 挂载的 Volume 中收集所有日志和结果文件。
-        *   将这些文件**上传到 `COSLogsBucket`** (e.g., `logs/<task_id>/diff.patch`)。
-        *   更新 `MySQLDB` 和 `RedisCache` 中的任务状态为 `COMPLETED` 或 `FAILED`，并存储 COS 上日志文件的链接或PR链接。
-        *   （可选）将任务完成的简要信息（如任务 ID、状态、结果摘要的 COS 路径）发布到 Kafka 的 `ResultTopic`。API 服务或其他下游服务可以订阅此主题。
+   * Agent 容器如常运行，读取 `/app/code` 中的代码，执行任务。
+   * 所有输出 (logs, diff, prompt.txt 等) 写入到 `/app/output`。
+4. **结果收集与状态更新 (Worker 服务):**
 
-5.  **用户获取结果 (API 服务):**
-    *   用户轮询 API 服务的状态接口。
-    *   `APIService` 从 `RedisCache` (快速路径) 或 `MySQLDB` (持久路径) 获取任务状态。
-    *   如果任务完成，API 服务返回指向 `COSLogsBucket` 中结果文件的**预签名 URL** 或通过 API 代理下载这些文件。
+   * 当 Agent K8s `Job/Pod` 完成后：
+     * Worker 从 `/app/output` 挂载的 Volume 中收集所有日志和结果文件。
+     * 将这些文件**上传到 `COSLogsBucket`** (e.g., `logs/<task_id>/diff.patch`)。
+     * 更新 `MySQLDB` 和 `RedisCache` 中的任务状态为 `COMPLETED` 或 `FAILED`，并存储 COS 上日志文件的链接或PR链接。
+     * （可选）将任务完成的简要信息（如任务 ID、状态、结果摘要的 COS 路径）发布到 Kafka 的 `ResultTopic`。API 服务或其他下游服务可以订阅此主题。
+5. **用户获取结果 (API 服务):**
+
+   * 用户轮询 API 服务的状态接口。
+   * `APIService` 从 `RedisCache` (快速路径) 或 `MySQLDB` (持久路径) 获取任务状态。
+   * 如果任务完成，API 服务返回指向 `COSLogsBucket` 中结果文件的**预签名 URL** 或通过 API 代理下载这些文件。
 
 ---
-### 2. worker
-This would be a separate Go application, built into a Docker image, and deployed on Kubernetes.
+
+### 2. worker服务
+
+这将是一个独立的Go应用程序，构建为Docker镜像并部署在Kubernetes上。
 
 ---
 
 ### 3. `agent/` (Agent - Python)
 
-No major changes are strictly *required* in the agent for this backend refactor, as long as:
-*   It still receives code in `/app/code`.
-*   It can still write logs/outputs to `/app/output`.
-*   Environment variables (like `OPENAI_API_KEY`, `GITHUB_TOKEN`) are correctly passed.
+只要满足以下条件，agent在此次后端重构中不需要做重大修改：
 
-**However, to integrate with COS for output uploading from the Agent Pod (if not using a sidecar):**
+* 它仍然在 `/app/code`接收代码
+* 它仍然可以将日志/输出写入 `/app/output`
+* 环境变量(如 `OPENAI_API_KEY`、`GITHUB_TOKEN`)被正确传递
 
-The Agent Pod's main container (or a post-stop lifecycle hook) would need:
-1.  COS credentials (e.g., via K8s secrets mounted as env vars or files, or using Workload Identity/IRSA).
-2.  A COS SDK or CLI tool (like `aws s3 sync` or `coscmd`) installed in the agent image.
-3.  Logic at the end of `agent.py` (or in a wrapper script) to upload the contents of `/app/output` to the designated `OutputCOSPath` (which would need to be passed as an env var to the agent).
+**但如果要让Agent Pod自行处理COS输出上传(不使用sidecar容器)：**
 
-**Example snippet for agent.py to upload output (conceptual):**
+Agent Pod的主容器(或停止后的生命周期钩子)需要：
 
-This upload logic is often better handled by a K8s sidecar container or a post-run script defined in the K8s Job spec to keep the agent focused on its core task.
+1. COS凭证(例如通过K8s secrets挂载为环境变量或文件，或使用Workload Identity/IRSA)
+2. 安装COS SDK或CLI工具(如 `aws s3 sync`或 `coscmd`)
+3. 在 `agent.py`末尾(或包装脚本中)添加逻辑，将 `/app/output`内容上传到指定的 `OutputCOSPath`(需要通过环境变量传递给agent)
+
+**agent.py中上传输出的代码：**
+
+这种上传逻辑通常更适合由K8s sidecar容器或在K8s Job定义中的后运行脚本来处理，以保持agent专注于其核心任务。
 
 ---
 
-### Deployment Considerations:
+### 部署注意事项：
 
-*   **Configuration:** Each service (API, Worker) will need its own configuration management (env vars, config files, K8s ConfigMaps/Secrets).
-*   **Docker Images:** You'll build separate Docker images for the API service, the Worker service, and the Agent.
-*   **Kubernetes Manifests:** You'll need K8s `Deployment` YAMLs for the API and Worker services, `Service` YAMLs to expose them, and a way to define the Agent `Job` (perhaps the Worker generates the Job spec dynamically).
-*   **Database Setup:** MySQL schema needs to be applied. Redis setup.
-*   **Kafka Setup:** Topics (`codex-tasks`, `codex-results`) need to be created.
-*   **COS Buckets:** `your-code-bucket` and `your-logs-bucket` need to be created with appropriate permissions.
-*   **IAM/Permissions:**
-    *   API service might need permission to write to COS (for initial ZIP uploads).
-    *   Worker service needs permission to read/write to COS, interact with Kubernetes API (create Jobs, get Job status), and read/write to MySQL/Redis.
-    *   Agent Pods (if they handle their own COS interactions via CSI or direct SDK calls) need COS read (for code) and write (for logs) permissions. This is often managed via K8s Service Accounts + IRSA (AWS), Workload Identity (GCP/Azure), or OIDC federation with Tencent Cloud CAM.
-
-
+* **配置管理：** 每个服务(API、Worker)都需要自己的配置管理(环境变量、配置文件、K8s ConfigMaps/Secrets)
+* **Docker镜像：** 需要为API服务、Worker服务和Agent分别构建Docker镜像
+* **Kubernetes清单：** 需要为API和Worker服务编写K8s `Deployment` YAML，`Service` YAML来暴露它们，以及定义Agent `Job`的方式(可能由Worker动态生成Job规范)
+* **数据库设置：** 需要应用MySQL schema，设置Redis
+* **Kafka设置：** 需要创建主题(`codex-tasks`、`codex-results`)
+* **COS存储桶：** 需要创建 `your-code-bucket`和 `your-logs-bucket`并设置适当权限
+* **IAM/权限管理：**
+  * API服务可能需要写入COS的权限(用于初始ZIP上传)
+  * Worker服务需要读写COS、与Kubernetes API交互(创建Job、获取Job状态)以及读写MySQL/Redis的权限
+  * Agent Pod(如果通过CSI或直接SDK调用处理自己的COS交互)需要COS读取(代码)和写入(日志)权限。

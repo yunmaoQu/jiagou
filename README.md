@@ -68,8 +68,8 @@ Update:
 ### 3️⃣ Build the Agent Docker Image
 
 ```bash
-cd dockerfiles/agent
-docker build -t codex-agent:latest .
+cd dockerfiles/swe
+docker build -t codex-swe:latest .
 cd ../..
 ```
 
@@ -219,7 +219,7 @@ STORAGE_PATH=./storage
 # LLM API Key
 OPENAI_API_KEY="sk-your-openai-api-key"
 
-# Optional GitHub Token (used by agent for PRs)
+# Optional GitHub Token (used by swe for PRs)
 GITHUB_TOKEN=""
 ```
 
@@ -230,7 +230,7 @@ GITHUB_TOKEN=""
 1. ✅ Fill in `.env` with your OpenAI key (and GitHub token)
 2. 🐳 Build Docker image:  
    ```bash
-   cd dockerfiles/agent && docker build -t codex-agent:latest . && cd ../..
+   cd dockerfiles/swe && docker build -t codex-swe:latest . && cd ../..
    ```
 3. 🧹 Tidy Go modules:  
    ```bash

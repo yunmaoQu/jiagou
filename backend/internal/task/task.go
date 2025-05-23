@@ -70,5 +70,3 @@ func UpdateStatus(ctx context.Context, db *sqlx.DB, id string, status Status, me
 	_, err := db.ExecContext(ctx, query, status, message, time.Now(), id)
 	return err
 }
-
-// ... other CRUD operations for tasks ...

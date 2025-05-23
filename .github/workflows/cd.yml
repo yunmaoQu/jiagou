@@ -51,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ./Dockerfiles/agent/go
+        working-directory: ./Dockerfiles/swe/go
     steps:
     - uses: actions/checkout@v4
 
@@ -63,7 +63,7 @@ jobs:
     - name: Install dependencies
       run: go mod download
 
-    - name: Build agent
+    - name: Build swe
       run: go build -v .
 
   docker-build:
@@ -96,7 +96,7 @@ jobs:
       uses: docker/build-push-action@v5
       with:
         context: .
-        file: ./Dockerfiles/agent/Dockerfile
+        file: ./Dockerfiles/swe/Dockerfile
         push: false
-        tags: codex-agent:latest
+        tags: codex-swe:latest
         load: true

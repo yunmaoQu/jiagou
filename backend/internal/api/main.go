@@ -15,13 +15,20 @@ import (
 
 // SetupAndRun initializes all dependencies and starts the API server
 func SetupAndRun() {
-	cfg, err := config.LoadFromYAML("/backend/config") // Load API-specific config from .env or config file
+	cfg, err := config.LoadFromYAML("/workspaces/Codex-like-SYS/backend/internal/config/config.yaml") // Load API-specific config from .env or config file
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
 	// --- Initialize Platforms ---
-	db, err := database.NewMySQLConnection(cfg.Database.DSN)
+	buildDSN := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+		cfg.Database.User,
+		cfg.Database.Password,
+		cfg.Database.Host,
+		cfg.Database.Port,
+		cfg.Database.Name,
+	)
+	db, err := database.NewMySQLConnection(buildDSN)
 	if err != nil {
 		log.Fatalf("Failed to connect to MySQL: %v", err)
 	}
@@ -68,7 +75,7 @@ func SetupAndRun() {
 	RegisterRoutes(router, db, kafkaProducer, cosClient /*, redisClient */)
 
 	// 前端静态文件服务
-	router.Static("/ui", "../frontend")
+	router.Static("/ui", "../fe")
 	router.GET("/", func(c *gin.Context) {
 		c.Redirect(302, "/ui/index.html")
 	})

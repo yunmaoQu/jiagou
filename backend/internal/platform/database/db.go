@@ -6,6 +6,9 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	"github.com/yunmaoQu/codex-sys/internal/task"
+	
+	_ "github.com/go-sql-driver/mysql" // 注册 MySQL 驱动
+
 )
 
 // DBClientWrapper wraps a sqlx.DB connection with task-specific operations
@@ -36,16 +39,4 @@ func NewDBClientWrapper(db *sqlx.DB) *DBClientWrapper {
 // UpdateTaskStatus updates the status of a task
 func (w *DBClientWrapper) UpdateTaskStatus(ctx context.Context, taskID string, status task.Status, message string) error {
 	return task.UpdateStatus(ctx, w.db, taskID, status, message)
-}
-
-// GetTaskByID retrieves a task by its ID
-func (w *DBClientWrapper) GetTaskByID(ctx context.Context, taskID string) (*task.Definition, error) {
-	return task.GetByID(ctx, w.db, taskID)
-}
-
-// UpdateTaskPRURL updates the PR URL for a task
-func (w *DBClientWrapper) UpdateTaskPRURL(ctx context.Context, taskID string, prURL string) error {
-	query := `UPDATE tasks SET pr_url = ?, updated_at = ? WHERE id = ?`
-	_, err := w.db.ExecContext(ctx, query, prURL, time.Now(), taskID)
-	return err
 }

@@ -1,0 +1,25 @@
+kafka:
+  brokers: ["localhost:9092"]
+  topics:
+    task: "codex-tasks"
+    result: "codex-results"
+
+cos:
+  buckets: 
+    code: "codex-code"
+    logs: "codex-logs"
+  region: "ap-shanghai"
+  accessKey: "AKIDxxxxxxxxxxxxxxxxxxxxx"
+  secretKey: "xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+docker:
+  agentImage: "codex-swe:latest"
+
+
+database:
+  host: "localhost"
+  port: "3306"
+  user: "root"
+  password: "123456"
+  name: "codexdb"
+

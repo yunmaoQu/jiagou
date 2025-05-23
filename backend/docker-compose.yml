@@ -16,7 +16,7 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - KAFKA_BROKERS=kafka:9092
-      - COS_REGION=ap-guangzhou
+      - COS_REGION=ap-shanghai
       - COS_BUCKET=codex-code-storage
     depends_on:
       - mysql

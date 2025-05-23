@@ -1,14 +1,13 @@
 server:
   port: "8080"
-  env: "development"
+  env: "dev"
 
 database:
   host: "localhost"
   port: "3306"
   user: "root"
   password: "123456"
-  name: "codex_sys"
-  dsn: ""  # 可留空，程序会自动构建
+  name: "codexdb"
 
 redis:
   host: "localhost"
@@ -25,15 +24,15 @@ kafka:
 cos:
   secretid: "your-cos-secret-id"
   secretkey: "your-cos-secret-key"
-  region: "ap-guangzhou"
+  region: "ap-shanghai"
   buckets:
     code: "codex-code"
     logs: "codex-logs"
 
 k8s:
   namespace: "default"
-  agentimage: "codex-agent:latest"
-  serviceaccount: "codex-agent"
+  agentimage: "codex-swe:latest"
+  serviceaccount: "codex-swe"
 
 openai:
   apikey: "your-openai-api-key"
