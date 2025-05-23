@@ -354,6 +354,11 @@ Provide corrected code with valid {language_name} syntax:"""
     state["modified_code"] = modified_code
     state["modification_failed"] = False
     return state
+# todo use llm
+async def validate_syntax(modified_code, target_file_rel_path):
+    return True
+
+async def mcp_step(task_id, mcp_payload):
 
 async def create_diff_node(state: AgentState) -> AgentState:
     """Create diff between original and modified code"""
