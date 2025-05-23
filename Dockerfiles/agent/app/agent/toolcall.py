@@ -183,11 +183,6 @@ class ToolCallAgent(ReActAgent):
             # Handle special tools
             await self._handle_special_tool(name=name, result=result)
 
-            # Check if result is a ToolResult with base64_image
-            if hasattr(result, "base64_image") and result.base64_image:
-                # Store the base64_image for later use in tool_message
-                self._current_base64_image = result.base64_image
-
             # Format result for display (standard case)
             observation = (
                 f"Observed output of cmd `{name}` executed:\n{str(result)}"

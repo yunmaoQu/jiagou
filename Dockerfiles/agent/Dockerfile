@@ -1,29 +1,13 @@
-FROM python:3.10-slim
+FROM python:3.12-slim
 
-# Install git and curl (git for cloning/PRs, curl for potential setup.sh needs)
-RUN apt-get update && apt-get install -y \
-    git \
-    curl \
-    # GitHub CLI for PR creation
-    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
-    && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
-    && apt-get update \
-    && apt-get install -y gh \
-    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app/OpenManus
 
-WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends git curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && (command -v uv >/dev/null 2>&1 || pip install --no-cache-dir uv)
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
 
-COPY agent.py .
-# AGENTS.md.example and setup.sh.example are not copied here
-# They are expected to be in the user's code mounted at /app/code
+RUN uv pip install --system -r requirements.txt
 
-# Ensure output directory exists for the agent
-RUN mkdir -p /app/output
-
-# Default command, can be overridden by Docker run command
-# CMD ["python3", "agent.py"]
-ENTRYPOINT ["python3", "agent.py"]
+CMD ["bash"]

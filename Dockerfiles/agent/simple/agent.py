@@ -1,6 +1,5 @@
 import ast
 import difflib
-import json
 import logging
 import os
 import subprocess
@@ -24,7 +23,7 @@ if dotenv_path.exists():
 # Environment variables
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-MODEL_NAME = os.getenv("OPENAI_MODEL", "gpt-o3-high")
+MODEL_NAME = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
 # Path configuration
 CODE_DIR = Path("/app/code").resolve()
@@ -129,10 +128,7 @@ def get_llm_response(prompt_text, max_retries=3):
             )
             content = response.choices[0].message.content
             
-            # Strip markdown code block delimiters if present
-            if content.startswith("```python") and content.endswith("```"):
-                content = "\n".join(content.splitlines()[1:-1])
-            elif content.startswith("```") and content.endswith("```"):
+            if content.startswith("```") and content.endswith("```"):
                 content = "\n".join(content.splitlines()[1:-1])
                 
             logging.info("Received response from OpenAI API.")

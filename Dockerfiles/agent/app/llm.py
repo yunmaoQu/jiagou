@@ -61,60 +61,6 @@ class TokenCounter:
         """Calculate tokens for a text string"""
         return 0 if not text else len(self.tokenizer.encode(text))
 
-    def count_image(self, image_item: dict) -> int:
-        """
-        Calculate tokens for an image based on detail level and dimensions
-
-        For "low" detail: fixed 85 tokens
-        For "high" detail:
-        1. Scale to fit in 2048x2048 square
-        2. Scale shortest side to 768px
-        3. Count 512px tiles (170 tokens each)
-        4. Add 85 tokens
-        """
-        detail = image_item.get("detail", "medium")
-
-        # For low detail, always return fixed token count
-        if detail == "low":
-            return self.LOW_DETAIL_IMAGE_TOKENS
-
-        # For medium detail (default in OpenAI), use high detail calculation
-        # OpenAI doesn't specify a separate calculation for medium
-
-        # For high detail, calculate based on dimensions if available
-        if detail == "high" or detail == "medium":
-            # If dimensions are provided in the image_item
-            if "dimensions" in image_item:
-                width, height = image_item["dimensions"]
-                return self._calculate_high_detail_tokens(width, height)
-
-        return (
-            self._calculate_high_detail_tokens(1024, 1024) if detail == "high" else 1024
-        )
-
-    def _calculate_high_detail_tokens(self, width: int, height: int) -> int:
-        """Calculate tokens for high detail images based on dimensions"""
-        # Step 1: Scale to fit in MAX_SIZE x MAX_SIZE square
-        if width > self.MAX_SIZE or height > self.MAX_SIZE:
-            scale = self.MAX_SIZE / max(width, height)
-            width = int(width * scale)
-            height = int(height * scale)
-
-        # Step 2: Scale so shortest side is HIGH_DETAIL_TARGET_SHORT_SIDE
-        scale = self.HIGH_DETAIL_TARGET_SHORT_SIDE / min(width, height)
-        scaled_width = int(width * scale)
-        scaled_height = int(height * scale)
-
-        # Step 3: Count number of 512px tiles
-        tiles_x = math.ceil(scaled_width / self.TILE_SIZE)
-        tiles_y = math.ceil(scaled_height / self.TILE_SIZE)
-        total_tiles = tiles_x * tiles_y
-
-        # Step 4: Calculate final token count
-        return (
-            total_tiles * self.HIGH_DETAIL_TILE_TOKENS
-        ) + self.LOW_DETAIL_IMAGE_TOKENS
-
     def count_content(self, content: Union[str, List[Union[str, dict]]]) -> int:
         """Calculate tokens for message content"""
         if not content:
@@ -321,22 +267,6 @@ class LLM:
                             for item in message["content"]
                         ]
 
-                    # Add the image to content
-                    message["content"].append(
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{message['base64_image']}"
-                            },
-                        }
-                    )
-
-                    # Remove the base64_image field
-                    del message["base64_image"]
-                # If model doesn't support images but message has base64_image, handle gracefully
-                elif not supports_images and message.get("base64_image"):
-                    # Just remove the base64_image field and keep the text content
-                    del message["base64_image"]
 
                 if "content" in message or "tool_calls" in message:
                     formatted_messages.append(message)
