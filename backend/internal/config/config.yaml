@@ -31,8 +31,8 @@ cos:
 
 k8s:
   namespace: "default"
-  agentimage: "codex-agent:latest"
-  serviceaccount: "codex-agent"
+  agentimage: "codex-swe:latest"
+  serviceaccount: "codex-swe"
 
 openai:
   apikey: "your-openai-api-key"

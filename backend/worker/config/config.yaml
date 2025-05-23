@@ -13,7 +13,7 @@ cos:
   secretKey: "xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
 docker:
-  agentImage: "codex-agent:latest"
+  agentImage: "codex-swe:latest"
 
 
 database:

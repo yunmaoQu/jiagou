@@ -189,7 +189,7 @@ function pollTaskStatus(taskId) {
 
 function displayLogLinks(taskId, isCompleted) {
     logLinksEl.innerHTML = '<h3>Task Outputs:</h3>';
-    const commonLogs = ["prompt.txt", "llm_response.txt", "diff.patch", "agent.log", "docker_container.log", "setup.log"];
+    const commonLogs = ["prompt.txt", "llm_response.txt", "diff.patch", "swe.log", "docker_container.log", "setup.log"];
     if (isCompleted) {
         commonLogs.push("pr_url.txt"); // If completed, PR URL might exist
     } else {
